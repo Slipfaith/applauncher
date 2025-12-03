@@ -4,6 +4,28 @@
 WINDOW_STYLE = "QMainWindow { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 10px; }"
 CONTAINER_STYLE = "QWidget { background-color: #f8f9fa; border-radius: 10px; }"
 GRID_WIDGET_STYLE = "QWidget { background-color: transparent; }"
+TABS_STYLE = """
+QTabWidget::pane {
+    border: none;
+}
+QTabBar::tab {
+    background: #ffffff;
+    color: #2c3e50;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 8px 14px;
+    margin-right: 6px;
+    min-width: 80px;
+    font-weight: 600;
+}
+QTabBar::tab:selected {
+    background: #e7f3ff;
+    border-color: #4a90e2;
+}
+QTabBar::tab:hover {
+    background: #f1f5ff;
+}
+"""
 
 # Title bar
 TITLE_BAR_STYLE = """
