@@ -17,11 +17,12 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QStackedWidget,
     QSystemTrayIcon,
     QTabWidget,
     QVBoxLayout,
     QWidget,
-    QScrollArea,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
@@ -42,6 +43,7 @@ from .styles import (
     CONTAINER_STYLE,
     GRID_WIDGET_STYLE,
     MENU_STYLE,
+    TABS_STYLE,
     WINDOW_STYLE,
 )
 from .widgets import AppButton, AppListItem, TitleBar
@@ -83,7 +85,22 @@ class AppLauncher(QMainWindow):
         content_layout.setSpacing(12)
         content_widget.setLayout(content_layout)
 
+        controls_layout = QHBoxLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(12)
+
+        self.tabs = QTabWidget()
+        self.tabs.setMovable(True)
+        self.tabs.setTabsClosable(False)
+        self.tabs.setDocumentMode(True)
+        self.tabs.setStyleSheet(TABS_STYLE)
+        self.tabs.tabBarClicked.connect(self.on_tab_clicked)
+        self.tabs.currentChanged.connect(lambda _: self.refresh_view())
+        controls_layout.addWidget(self.tabs, 2)
+
         search_layout = QHBoxLayout()
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(8)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Поиск приложений...")
         self.search_input.textChanged.connect(self.refresh_view)
@@ -96,7 +113,8 @@ class AppLauncher(QMainWindow):
         self.view_toggle.clicked.connect(self.toggle_view_mode)
         search_layout.addWidget(self.view_toggle)
 
-        content_layout.addLayout(search_layout)
+        controls_layout.addLayout(search_layout, 3)
+        content_layout.addLayout(controls_layout)
 
         add_btn = QPushButton("➕ Добавить элемент")
         add_btn.setStyleSheet(ADD_BUTTON_STYLE)
@@ -111,13 +129,6 @@ class AppLauncher(QMainWindow):
 
         content_layout.addWidget(add_btn)
 
-        self.tabs = QTabWidget()
-        self.tabs.setMovable(True)
-        self.tabs.setTabsClosable(False)
-        self.tabs.tabBarClicked.connect(self.on_tab_clicked)
-        self.tabs.currentChanged.connect(lambda _: self.refresh_view())
-        content_layout.addWidget(self.tabs)
-
         self.grid_widget = QWidget()
         self.grid_widget.setStyleSheet(GRID_WIDGET_STYLE)
         self.grid_layout = QGridLayout()
@@ -130,10 +141,14 @@ class AppLauncher(QMainWindow):
         self.list_layout.setContentsMargins(0, 0, 0, 0)
         self.list_container.setLayout(self.list_layout)
 
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.grid_widget)
+        self.view_stack.addWidget(self.list_container)
+
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet(GRID_WIDGET_STYLE)
-        self.scroll_area.setWidget(self.grid_widget)
+        self.scroll_area.setWidget(self.view_stack)
 
         content_layout.addWidget(self.scroll_area)
         content_layout.addStretch()
@@ -299,12 +314,12 @@ class AppLauncher(QMainWindow):
         if self.view_mode == "grid":
             self.view_toggle.setText("🔲 Сетка")
             self.view_toggle.setChecked(True)
-            self.scroll_area.setWidget(self.grid_widget)
+            self.view_stack.setCurrentWidget(self.grid_widget)
             self.populate_grid(filtered)
         else:
             self.view_toggle.setText("📄 Список")
             self.view_toggle.setChecked(False)
-            self.scroll_area.setWidget(self.list_container)
+            self.view_stack.setCurrentWidget(self.list_container)
             self.populate_list(filtered)
 
     def populate_grid(self, apps: list[dict]):
@@ -390,11 +405,11 @@ class AppLauncher(QMainWindow):
         if self.view_mode == "list":
             self.view_toggle.setText("📄 Список")
             self.view_toggle.setChecked(False)
-            self.scroll_area.setWidget(self.list_container)
+            self.view_stack.setCurrentWidget(self.list_container)
         else:
             self.view_toggle.setText("🔲 Сетка")
             self.view_toggle.setChecked(True)
-            self.scroll_area.setWidget(self.grid_widget)
+            self.view_stack.setCurrentWidget(self.grid_widget)
 
     def on_tab_clicked(self, index: int):
         if index == self.tabs.count() - 1:
