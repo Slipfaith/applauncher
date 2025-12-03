@@ -1,8 +1,7 @@
-PySide6
-openpyxl
-pandas
-requests
-pyinstaller
-pgpy
-XlsxWriter
-qhotkey
+PySide6>=6.7
+openpyxl>=3.1
+pandas>=2.2
+requests>=2.32
+pyinstaller>=6.9
+pgpy>=0.6
+XlsxWriter>=3.2
