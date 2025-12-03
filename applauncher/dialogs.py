@@ -28,11 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class AddAppDialog(QDialog):
-    def __init__(self, parent=None, edit_mode: bool = False, app_data: dict | None = None):
+    def __init__(self, parent=None, edit_mode: bool = False, app_data: dict | None = None, groups: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Редактировать" if edit_mode else "Добавить элемент")
         self.setMinimumWidth(450)
         self.setStyleSheet(DIALOG_STYLE)
+        groups = groups or ["Общее"]
 
         layout = QVBoxLayout()
         layout.setSpacing(15)
@@ -85,6 +86,19 @@ class AddAppDialog(QDialog):
         icon_btn.clicked.connect(self.browse_icon)
         icon_layout.addWidget(icon_btn)
         layout.addLayout(icon_layout)
+
+        group_label = QLabel("Группа")
+        layout.addWidget(group_label)
+        self.group_input = QComboBox()
+        self.group_input.setEditable(True)
+        self.group_input.addItems(groups)
+        if app_data:
+            existing_group = app_data.get("group", "Общее")
+            if existing_group not in groups:
+                self.group_input.addItem(existing_group)
+            self.group_input.setCurrentText(existing_group)
+        self.group_input.setStyleSheet(COMBO_BOX_STYLE)
+        layout.addWidget(self.group_input)
 
         layout.addStretch()
 
@@ -142,4 +156,5 @@ class AddAppDialog(QDialog):
             "path": self.path_input.text(),
             "icon_path": self.icon_input.text(),
             "type": "url" if self.type_combo.currentIndex() == 1 else "exe",
+            "group": self.group_input.currentText() or "Общее",
         }
