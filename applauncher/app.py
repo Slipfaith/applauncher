@@ -24,10 +24,16 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon, QPixmap, QKeySequence
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QIcon,
+    QPixmap,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-
-from qhotkey import QHotkey
 
 from .dialogs import AddAppDialog
 from .icons import extract_icon_with_fallback
@@ -56,7 +62,6 @@ class AppLauncher(QMainWindow):
         self.apps: list[dict] = []
         self.groups: list[str] = ["Общее"]
         self.view_mode = "grid"
-        self.hotkey_sequence = "Ctrl+Alt+Space"
 
         self.create_tray_icon()
 
@@ -137,7 +142,7 @@ class AppLauncher(QMainWindow):
 
         self.load_config()
         self.setup_tabs()
-        self.register_hotkey()
+        self.setup_shortcuts()
         self.refresh_view()
 
     def create_tray_icon(self):
@@ -153,9 +158,6 @@ class AppLauncher(QMainWindow):
 
         show_action = tray_menu.addAction("🚀 Показать")
         show_action.triggered.connect(self.show)
-
-        change_hotkey = tray_menu.addAction("⚡ Настроить хоткей")
-        change_hotkey.triggered.connect(self.change_hotkey)
 
         tray_menu.addSeparator()
 
@@ -357,7 +359,6 @@ class AppLauncher(QMainWindow):
         payload = {
             "apps": self.apps,
             "groups": self.groups,
-            "hotkey": self.hotkey_sequence,
             "view_mode": self.view_mode,
         }
         with open(self.config_file, "w", encoding="utf-8") as f:
@@ -371,7 +372,6 @@ class AppLauncher(QMainWindow):
             if isinstance(data, dict):
                 self.apps = data.get("apps", [])
                 self.groups = data.get("groups", self.groups)
-                self.hotkey_sequence = data.get("hotkey", self.hotkey_sequence)
                 self.view_mode = data.get("view_mode", self.view_mode)
             else:
                 self.apps = data
@@ -416,20 +416,11 @@ class AppLauncher(QMainWindow):
         if self.view_mode == "grid":
             self.refresh_view()
 
-    def register_hotkey(self):
-        try:
-            self.hotkey = QHotkey()
-            self.hotkey.setShortcut(QKeySequence(self.hotkey_sequence), register=True)
-            self.hotkey.activated.connect(self.toggle_visibility)
-        except Exception as exc:  # pragma: no cover - platform dependent
-            logger.warning("Не удалось установить глобальный хоткей: %s", exc)
-
-    def change_hotkey(self):
-        text, ok = QInputDialog.getText(self, "Горячая клавиша", "Например: Ctrl+Alt+Space", text=self.hotkey_sequence)
-        if ok and text:
-            self.hotkey_sequence = text
-            self.register_hotkey()
-            self.save_config()
+    def setup_shortcuts(self):
+        shortcut = QShortcut(QKeySequence("Ctrl+Alt+Space"), self)
+        shortcut.setContext(Qt.ApplicationShortcut)
+        shortcut.activated.connect(self.toggle_visibility)
+        self.toggle_shortcut = shortcut
 
     def toggle_visibility(self):
         if self.isVisible():
