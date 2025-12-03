@@ -1,18 +1,17 @@
 """Custom widgets for the launcher UI."""
 import os
-import webbrowser
 import logging
 
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QWidget,
-    QMessageBox,
     QMenu,
     QGraphicsDropShadowEffect,
     QSystemTrayIcon,
+    QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon, QColor
 
 from .styles import (
@@ -28,18 +27,24 @@ logger = logging.getLogger(__name__)
 
 
 class AppButton(QPushButton):
-    def __init__(self, name: str, path: str, icon_path: str, app_type: str, parent=None):
-        super().__init__(parent)
-        self.name = name
-        self.path = path
-        self.icon_path = icon_path
-        self.app_type = app_type
+    """Button used in grid view to display an application."""
 
-        self.setText(name)
+    activated = Signal(object)
+    editRequested = Signal(object)
+    deleteRequested = Signal(object)
+    openLocationRequested = Signal(object)
+
+    def __init__(self, app_data: dict, parent=None):
+        super().__init__(parent)
+        self.app_data = app_data
+
+        self.setText(app_data["name"])
+        icon_path = app_data.get("icon_path", "")
+        app_type = app_data.get("type", "exe")
         if icon_path and os.path.exists(icon_path):
             self.setIcon(QIcon(icon_path))
         elif app_type == "url":
-            self.setText(f"🌐 {name}")
+            self.setText(f"🌐 {app_data['name']}")
         self.setIconSize(QSize(56, 56))
         self.setMinimumSize(140, 120)
         self.setStyleSheet(APP_BUTTON_STYLE)
@@ -51,35 +56,90 @@ class AppButton(QPushButton):
         shadow.setColor(QColor(0, 0, 0, 30))
         self.setGraphicsEffect(shadow)
 
-        self.clicked.connect(self.launch_item)
+        self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
-
-    def launch_item(self):
-        if self.app_type == "url":
-            webbrowser.open(self.path)
-            logger.info("Открыт сайт %s", self.path)
-        else:
-            if os.path.exists(self.path):
-                os.startfile(self.path)
-                logger.info("Запуск приложения %s", self.path)
-            else:
-                QMessageBox.warning(self, "Ошибка", f"Файл не найден:\n{self.path}")
-                logger.warning("Файл не найден: %s", self.path)
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
         menu.setStyleSheet(MENU_STYLE)
         edit_action = menu.addAction("✏️ Редактировать")
         delete_action = menu.addAction("🗑️ Удалить")
+        open_folder_action = menu.addAction("📂 Открыть расположение")
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
-            main_window = self.window()
-            main_window.edit_app(self)
+            self.editRequested.emit(self.app_data)
         elif action == delete_action:
-            main_window = self.window()
-            main_window.delete_app(self)
+            self.deleteRequested.emit(self.app_data)
+        elif action == open_folder_action:
+            self.openLocationRequested.emit(self.app_data)
+
+
+class AppListItem(QWidget):
+    """Compact list entry for list mode."""
+
+    activated = Signal(object)
+    editRequested = Signal(object)
+    deleteRequested = Signal(object)
+    openLocationRequested = Signal(object)
+
+    def __init__(self, app_data: dict, parent=None):
+        super().__init__(parent)
+        self.app_data = app_data
+
+        from PySide6.QtWidgets import QHBoxLayout
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        icon_label = QLabel()
+        icon_path = app_data.get("icon_path", "")
+        if icon_path and os.path.exists(icon_path):
+            icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
+        layout.addWidget(icon_label)
+
+        text_layout = QVBoxLayout()
+        name_label = QLabel(app_data["name"])
+        name_label.setStyleSheet("font-weight: 600;")
+        text_layout.addWidget(name_label)
+
+        path_label = QLabel(app_data["path"])
+        path_label.setStyleSheet("color: #666;")
+        text_layout.addWidget(path_label)
+        layout.addLayout(text_layout)
+
+        layout.addStretch()
+
+        self.setLayout(layout)
+        self.setStyleSheet(
+            "QWidget { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; }"
+            "QWidget::hover { background: #f5f6ff; }"
+        )
+
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.activated.emit(self.app_data)
+        super().mousePressEvent(event)
+
+    def show_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.setStyleSheet(MENU_STYLE)
+        edit_action = menu.addAction("✏️ Редактировать")
+        delete_action = menu.addAction("🗑️ Удалить")
+        open_folder_action = menu.addAction("📂 Открыть расположение")
+
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == edit_action:
+            self.editRequested.emit(self.app_data)
+        elif action == delete_action:
+            self.deleteRequested.emit(self.app_data)
+        elif action == open_folder_action:
+            self.openLocationRequested.emit(self.app_data)
 
 
 class TitleBar(QWidget):
