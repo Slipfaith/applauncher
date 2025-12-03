@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QMenu,
     QGraphicsDropShadowEffect,
+    QSystemTrayIcon,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QColor
@@ -122,7 +123,7 @@ class TitleBar(QWidget):
         self.parent.tray_icon.showMessage(
             "Лаунчер",
             "Приложение свернуто в трей",
-            self.parent.tray_icon.Information,
+            QSystemTrayIcon.Information,
             2000,
         )
 
