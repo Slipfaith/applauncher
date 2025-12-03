@@ -140,20 +140,23 @@ class AppLauncher(QMainWindow):
     def dropEvent(self, event: QDropEvent):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.endswith(".exe"):
-                name = Path(file_path).stem
+            suffix = Path(file_path).suffix.lower()
 
-                icon_path = extract_icon_with_fallback(file_path)
+            if suffix in {".exe", ".lnk"}:
+                name = Path(file_path).stem
+                icon_path = extract_icon_with_fallback(file_path) if suffix == ".exe" else ""
 
                 self.apps.append(
                     {
                         "name": name,
                         "path": file_path,
                         "icon_path": icon_path,
-                        "type": "exe",
+                        "type": suffix.lstrip("."),
                     }
                 )
                 logger.info("Добавлено приложение из перетаскивания: %s", file_path)
+            else:
+                logger.warning("Игнорирован файл при перетаскивании: %s", file_path)
         self.save_config()
         self.refresh_grid()
 
