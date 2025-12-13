@@ -38,6 +38,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from .dialogs import AddAppDialog
 from .icons import extract_icon_with_fallback
+from .layouts import FlowLayout
 from .styles import (
     ADD_BUTTON_STYLE,
     CONTAINER_STYLE,
@@ -131,8 +132,7 @@ class AppLauncher(QMainWindow):
 
         self.grid_widget = QWidget()
         self.grid_widget.setStyleSheet(GRID_WIDGET_STYLE)
-        self.grid_layout = QGridLayout()
-        self.grid_layout.setSpacing(20)
+        self.grid_layout = FlowLayout(self.grid_widget, margin=10, h_spacing=20, v_spacing=20)
         self.grid_widget.setLayout(self.grid_layout)
 
         self.list_container = QWidget()
@@ -328,18 +328,13 @@ class AppLauncher(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
-        available_width = max(self.grid_widget.width(), 1)
-        cols = max(1, available_width // 180)
-
-        for i, app in enumerate(apps):
+        for app in apps:
             btn = AppButton(app, self.grid_widget)
             btn.activated.connect(self.launch_app)
             btn.editRequested.connect(self.edit_app)
             btn.deleteRequested.connect(self.delete_app)
             btn.openLocationRequested.connect(self.open_location)
-            row = i // cols
-            col = i % cols
-            self.grid_layout.addWidget(btn, row, col)
+            self.grid_layout.addWidget(btn)
 
     def populate_list(self, apps: list[dict]):
         while self.list_layout.count():
@@ -428,8 +423,7 @@ class AppLauncher(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.view_mode == "grid":
-            self.refresh_view()
+        # FlowLayout automatically handles resizing
 
     def setup_shortcuts(self):
         shortcut = QShortcut(QKeySequence("Ctrl+Alt+Space"), self)
