@@ -46,7 +46,8 @@ class AppButton(QPushButton):
         elif app_type == "url":
             self.setText(f"🌐 {app_data['name']}")
         self.setIconSize(QSize(56, 56))
-        self.setMinimumSize(140, 120)
+        # Fixed size for FlowLayout consistency
+        self.setFixedSize(140, 120)
         self.setStyleSheet(APP_BUTTON_STYLE)
 
         shadow = QGraphicsDropShadowEffect()
@@ -59,6 +60,26 @@ class AppButton(QPushButton):
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        effect = self.graphicsEffect()
+        if effect:
+            # Simple "animation" by step changes is effectively instant,
+            # but creates a snappy feel.
+            # For real animation we would need to subclass QGraphicsEffect or wrap it.
+            # Here we just make it distinct.
+            effect.setBlurRadius(30)
+            effect.setYOffset(8)
+            effect.setColor(QColor(59, 130, 246, 80)) # More vibrant blue
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        effect = self.graphicsEffect()
+        if effect:
+            effect.setBlurRadius(20)
+            effect.setYOffset(4)
+            effect.setColor(QColor(0, 0, 0, 30))
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
