@@ -16,6 +16,7 @@ from PySide6.QtGui import QIcon, QColor
 
 from .styles import (
     APP_BUTTON_STYLE,
+    GRID_BUTTON_SIZE,
     MENU_STYLE,
     TITLE_BAR_STYLE,
     TITLE_LABEL_STYLE,
@@ -33,21 +34,24 @@ class AppButton(QPushButton):
     editRequested = Signal(object)
     deleteRequested = Signal(object)
     openLocationRequested = Signal(object)
+    favoriteToggled = Signal(object)
 
     def __init__(self, app_data: dict, parent=None):
         super().__init__(parent)
         self.app_data = app_data
 
-        self.setText(app_data["name"])
+        prefix = "★ " if app_data.get("favorite") else ""
+        display_name = f"{prefix}{app_data['name']}"
+        self.setText(display_name)
         icon_path = app_data.get("icon_path", "")
         app_type = app_data.get("type", "exe")
         if icon_path and os.path.exists(icon_path):
             self.setIcon(QIcon(icon_path))
         elif app_type == "url":
-            self.setText(f"🌐 {app_data['name']}")
+            self.setText(f"🌐 {display_name}")
         self.setIconSize(QSize(56, 56))
         # Fixed size for FlowLayout consistency
-        self.setFixedSize(140, 120)
+        self.setFixedSize(*GRID_BUTTON_SIZE)
         self.setStyleSheet(APP_BUTTON_STYLE)
 
         shadow = QGraphicsDropShadowEffect()
@@ -87,6 +91,9 @@ class AppButton(QPushButton):
         edit_action = menu.addAction("✏️ Редактировать")
         delete_action = menu.addAction("🗑️ Удалить")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        favorite_action = menu.addAction(
+            "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
+        )
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
@@ -95,6 +102,8 @@ class AppButton(QPushButton):
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
+        elif action == favorite_action:
+            self.favoriteToggled.emit(self.app_data)
 
 
 class AppListItem(QWidget):
@@ -104,6 +113,7 @@ class AppListItem(QWidget):
     editRequested = Signal(object)
     deleteRequested = Signal(object)
     openLocationRequested = Signal(object)
+    favoriteToggled = Signal(object)
 
     def __init__(self, app_data: dict, parent=None):
         super().__init__(parent)
@@ -122,7 +132,8 @@ class AppListItem(QWidget):
         layout.addWidget(icon_label)
 
         text_layout = QVBoxLayout()
-        name_label = QLabel(app_data["name"])
+        prefix = "★ " if app_data.get("favorite") else ""
+        name_label = QLabel(f"{prefix}{app_data['name']}")
         name_label.setStyleSheet("font-weight: 600;")
         text_layout.addWidget(name_label)
 
@@ -153,6 +164,9 @@ class AppListItem(QWidget):
         edit_action = menu.addAction("✏️ Редактировать")
         delete_action = menu.addAction("🗑️ Удалить")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        favorite_action = menu.addAction(
+            "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
+        )
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
@@ -161,6 +175,8 @@ class AppListItem(QWidget):
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
+        elif action == favorite_action:
+            self.favoriteToggled.emit(self.app_data)
 
 
 class TitleBar(QWidget):

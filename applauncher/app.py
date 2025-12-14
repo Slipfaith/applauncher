@@ -1,13 +1,13 @@
 """Main application window."""
-import json
 import os
 import logging
+import subprocess
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlparse
 
 from PySide6.QtWidgets import (
     QApplication,
-    QGridLayout,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QInputDialog,
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -36,20 +36,44 @@ from PySide6.QtGui import (
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
+from .config import ConfigError, DEFAULT_CONFIG, load_config, save_config
 from .dialogs import AddAppDialog
 from .icons import extract_icon_with_fallback
 from .layouts import FlowLayout
 from .styles import (
     ADD_BUTTON_STYLE,
     CONTAINER_STYLE,
+    CONTENT_MARGINS,
+    CONTENT_SPACING,
+    GRID_LAYOUT_MARGIN,
+    GRID_LAYOUT_SPACING,
     GRID_WIDGET_STYLE,
+    LIST_SPACING,
     MENU_STYLE,
+    SEARCH_SPACING,
     TABS_STYLE,
     WINDOW_STYLE,
+    WINDOW_MIN_SIZE,
 )
+from .repository import AppRepository, DEFAULT_GROUP
 from .widgets import AppButton, AppListItem, TitleBar
 
 logger = logging.getLogger(__name__)
+
+
+class IconExtractionSignals(QObject):
+    finished = Signal(str, str)
+
+
+class IconExtractionWorker(QRunnable):
+    def __init__(self, path: str):
+        super().__init__()
+        self.path = path
+        self.signals = IconExtractionSignals()
+
+    def run(self):  # pragma: no cover - visual side effects
+        icon_path = extract_icon_with_fallback(self.path)
+        self.signals.finished.emit(self.path, icon_path or "")
 
 
 class AppLauncher(QMainWindow):
@@ -57,14 +81,26 @@ class AppLauncher(QMainWindow):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setMinimumSize(700, 500)
+        self.setMinimumSize(*WINDOW_MIN_SIZE)
         self.setStyleSheet(WINDOW_STYLE)
         self.setAcceptDrops(True)
 
         self.config_file = "launcher_config.json"
-        self.apps: list[dict] = []
-        self.groups: list[str] = ["Общее"]
+        self.repository = AppRepository()
+        self.groups: list[str] = [DEFAULT_GROUP]
         self.view_mode = "grid"
+        self._last_render_state: tuple[str, str, str, int] | None = None
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(300)
+        self._save_timer.timeout.connect(self._persist_config)
+        self.thread_pool = QThreadPool.globalInstance()
+        self._icon_tasks: list[IconExtractionWorker] = []
+        self.launch_handlers = {
+            "url": self._launch_url,
+            "exe": self._launch_executable,
+            "lnk": self._launch_executable,
+        }
 
         self.create_tray_icon()
 
@@ -82,13 +118,13 @@ class AppLauncher(QMainWindow):
 
         content_widget = QWidget()
         content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(*CONTENT_MARGINS)
+        content_layout.setSpacing(CONTENT_SPACING)
         content_widget.setLayout(content_layout)
 
         controls_layout = QHBoxLayout()
         controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(12)
+        controls_layout.setSpacing(CONTENT_SPACING)
 
         self.tabs = QTabWidget()
         self.tabs.setMovable(True)
@@ -101,7 +137,7 @@ class AppLauncher(QMainWindow):
 
         search_layout = QHBoxLayout()
         search_layout.setContentsMargins(0, 0, 0, 0)
-        search_layout.setSpacing(8)
+        search_layout.setSpacing(SEARCH_SPACING)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Поиск приложений...")
         self.search_input.textChanged.connect(self.refresh_view)
@@ -132,12 +168,17 @@ class AppLauncher(QMainWindow):
 
         self.grid_widget = QWidget()
         self.grid_widget.setStyleSheet(GRID_WIDGET_STYLE)
-        self.grid_layout = FlowLayout(self.grid_widget, margin=10, h_spacing=20, v_spacing=20)
+        self.grid_layout = FlowLayout(
+            self.grid_widget,
+            margin=GRID_LAYOUT_MARGIN,
+            h_spacing=GRID_LAYOUT_SPACING,
+            v_spacing=GRID_LAYOUT_SPACING,
+        )
         self.grid_widget.setLayout(self.grid_layout)
 
         self.list_container = QWidget()
         self.list_layout = QVBoxLayout()
-        self.list_layout.setSpacing(10)
+        self.list_layout.setSpacing(LIST_SPACING)
         self.list_layout.setContentsMargins(0, 0, 0, 0)
         self.list_container.setLayout(self.list_layout)
 
@@ -155,8 +196,7 @@ class AppLauncher(QMainWindow):
 
         main_layout.addWidget(content_widget)
 
-        self.load_config()
-        self.setup_tabs()
+        self.load_state()
         self.setup_shortcuts()
         self.refresh_view()
 
@@ -206,88 +246,94 @@ class AppLauncher(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
+        added = False
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             suffix = Path(file_path).suffix.lower()
 
-            if suffix in {".exe", ".lnk"}:
+            if suffix in {".exe", ".lnk"} and os.path.exists(file_path):
                 name = Path(file_path).stem
-                icon_path = extract_icon_with_fallback(file_path) if suffix == ".exe" else ""
-
-                self.apps.append(
-                    {
-                        "name": name,
-                        "path": file_path,
-                        "icon_path": icon_path,
-                        "type": suffix.lstrip("."),
-                        "group": self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else "Общее",
-                        "usage_count": 0,
-                    }
-                )
+                app_data = {
+                    "name": name,
+                    "path": file_path,
+                    "icon_path": "",
+                    "type": suffix.lstrip("."),
+                    "group": self.current_group,
+                    "usage_count": 0,
+                }
+                self.repository.add_app(app_data)
+                self._start_icon_extraction(app_data)
+                added = True
                 logger.info("Добавлено приложение из перетаскивания: %s", file_path)
             else:
                 logger.warning("Игнорирован файл при перетаскивании: %s", file_path)
-        self.save_config()
-        self.refresh_grid()
+        if added:
+            self.schedule_save()
+            self.refresh_view()
 
     def add_app(self):
         dialog = AddAppDialog(self, groups=self.groups)
         if dialog.exec():
-            data = dialog.get_data()
-            if data["name"] and data["path"]:
-                data.setdefault("usage_count", 0)
-                if data.get("group") not in self.groups:
-                    self.groups.append(data.get("group", "Общее"))
-                    self.setup_tabs()
-                self.apps.append(data)
-                self.save_config()
-                self.refresh_view()
-                logger.info("Добавлен элемент: %s", data["name"])
+            data = self._validate_app_data(dialog.get_data())
+            if not data:
+                return
+            if data.get("group") not in self.groups:
+                self.groups.append(data.get("group", DEFAULT_GROUP))
+                self.setup_tabs()
+            created = self.repository.add_app(data)
+            self._start_icon_extraction(created)
+            self.schedule_save()
+            self.refresh_view()
+            logger.info("Добавлен элемент: %s", data["name"])
 
     def edit_app(self, app_data: dict):
-        for i, app in enumerate(self.apps):
+        for app in self.repository.apps:
             if app["path"] == app_data["path"]:
                 dialog = AddAppDialog(self, edit_mode=True, app_data=app, groups=self.groups)
                 if dialog.exec():
-                    updated = dialog.get_data()
-                    updated.setdefault("usage_count", app.get("usage_count", 0))
-                    self.apps[i] = updated
+                    updated = self._validate_app_data(dialog.get_data())
+                    if not updated:
+                        return
+                    previous_icon = app.get("icon_path")
+                    updated["usage_count"] = app.get("usage_count", 0)
                     if updated.get("group") not in self.groups:
-                        self.groups.append(updated.get("group", "Общее"))
+                        self.groups.append(updated.get("group", DEFAULT_GROUP))
                         self.setup_tabs()
-                    self.save_config()
+                    stored = self.repository.update_app(app["path"], updated)
+                    new_icon = (stored or updated).get("icon_path")
+                    if previous_icon and previous_icon != new_icon:
+                        self._cleanup_icon_cache(previous_icon)
+                    self._start_icon_extraction(stored or updated)
+                    self.schedule_save()
                     self.refresh_view()
-                    logger.info("Изменен элемент: %s", self.apps[i]["name"])
+                    logger.info("Изменен элемент: %s", updated["name"])
                 break
 
     def delete_app(self, app_data: dict):
-        original_len = len(self.apps)
-        self.apps = [app for app in self.apps if app["path"] != app_data["path"]]
-        if len(self.apps) != original_len:
+        if self.repository.delete_app(app_data["path"]):
+            self._cleanup_icon_cache(app_data.get("icon_path"))
             logger.info("Удален элемент: %s", app_data["name"])
-            self.save_config()
+            self.schedule_save()
             self.refresh_view()
 
-    def launch_app(self, app_data: dict):
-        if app_data.get("type") == "url":
-            webbrowser.open(app_data["path"])
-            logger.info("Открыт сайт %s", app_data["path"])
-        else:
-            if os.path.exists(app_data["path"]):
-                os.startfile(app_data["path"])
-                logger.info("Запуск приложения %s", app_data["path"])
-            else:
-                QMessageBox.warning(self, "Ошибка", f"Файл не найден:\n{app_data['path']}")
-                logger.warning("Файл не найден: %s", app_data["path"])
-                return
-
-        app_data["usage_count"] = app_data.get("usage_count", 0) + 1
-        for item in self.apps:
-            if item["path"] == app_data["path"]:
-                item["usage_count"] = app_data["usage_count"]
-                break
-        self.save_config()
+    def toggle_favorite(self, app_data: dict):
+        target = next((item for item in self.repository.apps if item["path"] == app_data["path"]), None)
+        if not target:
+            return
+        updated = dict(target)
+        updated["favorite"] = not target.get("favorite", False)
+        self.repository.update_app(target["path"], updated)
+        self.schedule_save()
         self.refresh_view()
+
+    def launch_app(self, app_data: dict):
+        handler = self.launch_handlers.get(app_data.get("type", "exe"), self._launch_executable)
+        success = handler(app_data)
+        if success:
+            updated = self.repository.increment_usage(app_data["path"]) or app_data
+            app_data.update(updated)
+            self.schedule_save()
+            self.refresh_view()
 
     def open_location(self, app_data: dict):
         if app_data.get("type") == "url":
@@ -295,21 +341,22 @@ class AppLauncher(QMainWindow):
             return
         folder = Path(app_data["path"]).parent
         if folder.exists():
-            os.startfile(folder)
+            try:
+                os.startfile(folder)
+            except OSError as err:  # pragma: no cover - system dependent
+                QMessageBox.warning(self, "Ошибка", f"Не удалось открыть папку:\n{err}")
         else:
             QMessageBox.warning(self, "Ошибка", f"Папка не найдена:\n{folder}")
 
     def refresh_view(self):
-        current_group = self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else "Общее"
-        text = self.search_input.text().lower()
-        filtered = [
-            app
-            for app in self.apps
-            if (app.get("group", "Общее") == current_group)
-            and (text in app["name"].lower() or text in app["path"].lower())
-        ]
+        current_group = self.current_group
+        query = self.search_input.text()
+        render_state = (self.view_mode, current_group, query, self.repository.version)
+        if self._last_render_state == render_state:
+            return
+        self._last_render_state = render_state
 
-        filtered.sort(key=lambda a: (-a.get("usage_count", 0), a["name"]))
+        filtered = self.repository.get_filtered_apps(query, current_group)
 
         if self.view_mode == "grid":
             self.view_toggle.setText("🔲 Сетка")
@@ -334,6 +381,7 @@ class AppLauncher(QMainWindow):
             btn.editRequested.connect(self.edit_app)
             btn.deleteRequested.connect(self.delete_app)
             btn.openLocationRequested.connect(self.open_location)
+            btn.favoriteToggled.connect(self.toggle_favorite)
             self.grid_layout.addWidget(btn)
 
     def populate_list(self, apps: list[dict]):
@@ -348,49 +396,172 @@ class AppLauncher(QMainWindow):
             item.editRequested.connect(self.edit_app)
             item.deleteRequested.connect(self.delete_app)
             item.openLocationRequested.connect(self.open_location)
+            item.favoriteToggled.connect(self.toggle_favorite)
             self.list_layout.addWidget(item)
         self.list_layout.addStretch()
 
     def launch_top_result(self):
-        current_group = self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else "Общее"
-        text = self.search_input.text().lower()
-        filtered = [
-            app
-            for app in self.apps
-            if (app.get("group", "Общее") == current_group)
-            and (text in app["name"].lower() or text in app["path"].lower())
-        ]
+        current_group = self.current_group
+        filtered = self.repository.get_filtered_apps(self.search_input.text(), current_group)
         if not filtered:
             return
-        filtered.sort(key=lambda a: (-a.get("usage_count", 0), a["name"]))
         self.launch_app(filtered[0])
 
-    def save_config(self):
+    def load_state(self):
+        try:
+            data = load_config(self.config_file)
+        except ConfigError as err:
+            QMessageBox.warning(self, "Ошибка конфигурации", str(err))
+            logger.warning("Ошибка загрузки конфигурации: %s", err)
+            data = DEFAULT_CONFIG.copy()
+
+        self.repository.set_apps(data.get("apps", []))
+        self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
+        self.view_mode = data.get("view_mode", self.view_mode)
+        for app in self.repository.apps:
+            group_name = app.get("group", DEFAULT_GROUP)
+            if group_name not in self.groups:
+                self.groups.append(group_name)
+        self.setup_tabs()
+        self._last_render_state = None
+
+    def schedule_save(self):
+        self._save_timer.start()
+
+    def _persist_config(self):
         payload = {
-            "apps": self.apps,
-            "groups": self.groups,
+            "apps": self.repository.apps,
+            "groups": self.groups or [DEFAULT_GROUP],
             "view_mode": self.view_mode,
         }
-        with open(self.config_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        logger.info("Конфигурация сохранена")
+        try:
+            save_config(self.config_file, payload)
+            logger.info("Конфигурация сохранена")
+        except ConfigError as err:
+            QMessageBox.warning(self, "Ошибка", str(err))
+            logger.warning("Ошибка сохранения конфигурации: %s", err)
 
-    def load_config(self):
-        if os.path.exists(self.config_file):
-            with open(self.config_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                self.apps = data.get("apps", [])
-                self.groups = data.get("groups", self.groups)
-                self.view_mode = data.get("view_mode", self.view_mode)
+    @property
+    def current_group(self) -> str:
+        return self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else DEFAULT_GROUP
+
+    def _validate_app_data(self, data: dict | None) -> dict | None:
+        if not data:
+            return None
+        name = (data.get("name") or "").strip()
+        if not name:
+            QMessageBox.warning(self, "Ошибка", "Укажите название элемента")
+            return None
+        path_value = (data.get("path") or "").strip()
+        data["name"] = name
+        data["path"] = path_value
+        item_type = data.get("type", "exe")
+        args = data.get("args") or []
+        if isinstance(args, str):
+            args = [args]
+        data["args"] = args
+        if item_type == "url":
+            normalized = self._normalize_url(path_value)
+            if not normalized:
+                QMessageBox.warning(
+                    self,
+                    "Ошибка",
+                    "Введите корректный URL (пример: https://example.com)",
+                )
+                return None
+            data["path"] = normalized
+        else:
+            if not path_value:
+                QMessageBox.warning(self, "Ошибка", "Укажите путь к исполняемому файлу")
+                return None
+            if not os.path.exists(path_value):
+                QMessageBox.warning(self, "Ошибка", f"Файл не найден:\n{path_value}")
+                return None
+        data.setdefault("group", DEFAULT_GROUP)
+        data.setdefault("usage_count", 0)
+        data.setdefault("favorite", False)
+        data.setdefault("args", [])
+        return data
+
+    def _normalize_url(self, url: str) -> str:
+        if not url:
+            return ""
+        parsed = urlparse(url)
+        if not parsed.scheme:
+            url = f"https://{url}"
+            parsed = urlparse(url)
+        if not parsed.netloc:
+            return ""
+        return url
+
+    def _launch_url(self, app_data: dict) -> bool:
+        normalized = self._normalize_url(app_data.get("path", ""))
+        if not normalized:
+            QMessageBox.warning(self, "Ошибка", "Некорректный URL")
+            return False
+        try:
+            opened = bool(webbrowser.open(normalized))
+            if not opened:
+                QMessageBox.warning(self, "Ошибка", "Не удалось открыть ссылку")
+                return False
+            logger.info("Открыт сайт %s", normalized)
+            return True
+        except Exception as err:  # pragma: no cover - system/browser dependent
+            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть ссылку:\n{err}")
+            logger.exception("Ошибка открытия URL %s", normalized)
+            return False
+
+    def _launch_executable(self, app_data: dict) -> bool:
+        path_value = app_data.get("path", "")
+        if not os.path.exists(path_value):
+            QMessageBox.warning(self, "Ошибка", f"Файл не найден:\n{path_value}")
+            logger.warning("Файл не найден: %s", path_value)
+            return False
+        try:
+            args = app_data.get("args") or []
+            if args:
+                subprocess.Popen([path_value, *args])
             else:
-                self.apps = data
-            for app in self.apps:
-                app.setdefault("usage_count", 0)
-                app.setdefault("group", "Общее")
-            logger.info("Конфигурация загружена")
-        if not self.groups:
-            self.groups = ["Общее"]
+                os.startfile(path_value)
+            logger.info("Запуск приложения %s", path_value)
+            return True
+        except OSError as err:  # pragma: no cover - system dependent
+            QMessageBox.warning(self, "Ошибка", f"Не удалось запустить файл:\n{err}")
+            logger.warning("Ошибка запуска %s: %s", path_value, err)
+            return False
+
+    def _start_icon_extraction(self, app_data: dict | None):
+        if not app_data or app_data.get("type") != "exe" or app_data.get("icon_path"):
+            return
+        worker = IconExtractionWorker(app_data["path"])
+        worker.signals.finished.connect(
+            lambda path, icon, w=worker: self._on_icon_extracted(path, icon, w)
+        )
+        self._icon_tasks.append(worker)
+        self.thread_pool.start(worker)
+
+    def _on_icon_extracted(
+        self, path: str, icon_path: str, worker: IconExtractionWorker | None = None
+    ):
+        if worker and worker in self._icon_tasks:
+            self._icon_tasks.remove(worker)
+        if icon_path and self.repository.update_icon(path, icon_path):
+            self.schedule_save()
+            self.refresh_view()
+
+    def _cleanup_icon_cache(self, icon_path: str | None) -> None:
+        if not icon_path:
+            return
+        try:
+            icon_file = Path(icon_path).resolve()
+            icons_dir = Path("launcher_icons").resolve()
+        except Exception:
+            return
+        if icon_file.exists() and icons_dir in icon_file.parents:
+            try:
+                icon_file.unlink()
+            except OSError as err:  # pragma: no cover - filesystem dependent
+                logger.warning("Не удалось удалить иконку %s: %s", icon_file, err)
 
     def setup_tabs(self):
         self.tabs.clear()
@@ -413,12 +584,13 @@ class AppLauncher(QMainWindow):
                 self.groups.append(text)
                 self.setup_tabs()
                 self.tabs.setCurrentIndex(self.tabs.count() - 2)
-                self.save_config()
+                self.schedule_save()
         self.refresh_view()
 
     def toggle_view_mode(self):
         self.view_mode = "list" if self.view_mode == "grid" else "grid"
-        self.save_config()
+        self._last_render_state = None
+        self.schedule_save()
         self.refresh_view()
 
     def resizeEvent(self, event):
