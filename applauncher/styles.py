@@ -1,5 +1,15 @@
 """Centralized QSS style definitions for the launcher UI."""
 
+# Layout metrics
+WINDOW_MIN_SIZE = (700, 500)
+CONTENT_MARGINS = (20, 20, 20, 20)
+CONTENT_SPACING = 12
+SEARCH_SPACING = 8
+GRID_BUTTON_SIZE = (140, 120)
+GRID_LAYOUT_MARGIN = 10
+GRID_LAYOUT_SPACING = 20
+LIST_SPACING = 10
+
 # General container styles
 WINDOW_STYLE = "QMainWindow { background-color: #f0f2f5; border: 1px solid #d1d5db; border-radius: 12px; }"
 CONTAINER_STYLE = "QWidget { background-color: #f0f2f5; border-radius: 12px; }"

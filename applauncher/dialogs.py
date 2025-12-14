@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .icons import extract_icon_with_fallback
 from .styles import (
     CANCEL_BUTTON_STYLE,
     COMBO_BOX_STYLE,
@@ -138,12 +137,6 @@ class AddAppDialog(QDialog):
             self.path_input.setText(file_path)
             if not self.name_input.text():
                 self.name_input.setText(Path(file_path).stem)
-
-            if not self.icon_input.text():
-                icon_path = extract_icon_with_fallback(file_path)
-                if icon_path:
-                    logger.info("Иконка извлечена из %s", file_path)
-                    self.icon_input.setText(icon_path)
 
     def browse_icon(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выберите иконку", "", "Images (*.png *.jpg *.ico)")
