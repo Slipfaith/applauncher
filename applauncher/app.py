@@ -45,9 +45,11 @@ from .styles import (
     CONTAINER_STYLE,
     CONTENT_MARGINS,
     CONTENT_SPACING,
+    CONTROL_BUTTON_STYLE,
     GRID_LAYOUT_MARGIN,
     GRID_LAYOUT_SPACING,
     GRID_WIDGET_STYLE,
+    LINE_EDIT_STYLE,
     LIST_SPACING,
     MENU_STYLE,
     SEARCH_SPACING,
@@ -140,20 +142,22 @@ class AppLauncher(QMainWindow):
         search_layout.setSpacing(SEARCH_SPACING)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Поиск приложений...")
+        self.search_input.setStyleSheet(LINE_EDIT_STYLE)
         self.search_input.textChanged.connect(self.refresh_view)
         self.search_input.returnPressed.connect(self.launch_top_result)
         search_layout.addWidget(self.search_input)
 
-        self.view_toggle = QPushButton("🔲 Сетка")
+        self.view_toggle = QPushButton("Сетка")
         self.view_toggle.setCheckable(True)
         self.view_toggle.setChecked(True)
+        self.view_toggle.setStyleSheet(CONTROL_BUTTON_STYLE)
         self.view_toggle.clicked.connect(self.toggle_view_mode)
         search_layout.addWidget(self.view_toggle)
 
         controls_layout.addLayout(search_layout, 3)
         content_layout.addLayout(controls_layout)
 
-        add_btn = QPushButton("➕ Добавить элемент")
+        add_btn = QPushButton("Добавить приложение")
         add_btn.setStyleSheet(ADD_BUTTON_STYLE)
         add_btn.clicked.connect(self.add_app)
 
@@ -569,11 +573,11 @@ class AppLauncher(QMainWindow):
             self.tabs.addTab(QWidget(), group)
         self.tabs.addTab(QWidget(), "+")
         if self.view_mode == "list":
-            self.view_toggle.setText("📄 Список")
+            self.view_toggle.setText("Список")
             self.view_toggle.setChecked(False)
             self.view_stack.setCurrentWidget(self.list_container)
         else:
-            self.view_toggle.setText("🔲 Сетка")
+            self.view_toggle.setText("Сетка")
             self.view_toggle.setChecked(True)
             self.view_stack.setCurrentWidget(self.grid_widget)
 
