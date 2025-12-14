@@ -165,7 +165,7 @@ class AppLauncher(QMainWindow):
         shadow.setBlurRadius(15)
         shadow.setXOffset(0)
         shadow.setYOffset(3)
-        shadow.setColor(QColor(74, 144, 226, 80))
+        shadow.setColor(QColor(251, 146, 60, 120))
         add_btn.setGraphicsEffect(shadow)
 
         content_layout.addWidget(add_btn)
