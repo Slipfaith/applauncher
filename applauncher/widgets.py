@@ -55,10 +55,10 @@ class AppButton(QPushButton):
         self.setStyleSheet(APP_BUTTON_STYLE)
 
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(20)
+        shadow.setBlurRadius(18)
         shadow.setXOffset(0)
-        shadow.setYOffset(4)
-        shadow.setColor(QColor(0, 0, 0, 30))
+        shadow.setYOffset(5)
+        shadow.setColor(QColor(16, 24, 40, 26))
         self.setGraphicsEffect(shadow)
 
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
@@ -73,17 +73,17 @@ class AppButton(QPushButton):
             # but creates a snappy feel.
             # For real animation we would need to subclass QGraphicsEffect or wrap it.
             # Here we just make it distinct.
-            effect.setBlurRadius(30)
-            effect.setYOffset(8)
-            effect.setColor(QColor(59, 130, 246, 80)) # More vibrant blue
+            effect.setBlurRadius(26)
+            effect.setYOffset(9)
+            effect.setColor(QColor(37, 99, 235, 70))
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
         effect = self.graphicsEffect()
         if effect:
-            effect.setBlurRadius(20)
-            effect.setYOffset(4)
-            effect.setColor(QColor(0, 0, 0, 30))
+            effect.setBlurRadius(18)
+            effect.setYOffset(5)
+            effect.setColor(QColor(16, 24, 40, 26))
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -134,11 +134,11 @@ class AppListItem(QWidget):
         text_layout = QVBoxLayout()
         prefix = "★ " if app_data.get("favorite") else ""
         name_label = QLabel(f"{prefix}{app_data['name']}")
-        name_label.setStyleSheet("font-weight: 600;")
+        name_label.setStyleSheet("font-weight: 700; color: #0f172a;")
         text_layout.addWidget(name_label)
 
         path_label = QLabel(app_data["path"])
-        path_label.setStyleSheet("color: #666;")
+        path_label.setStyleSheet("color: #6b7280;")
         text_layout.addWidget(path_label)
         layout.addLayout(text_layout)
 
@@ -146,8 +146,8 @@ class AppListItem(QWidget):
 
         self.setLayout(layout)
         self.setStyleSheet(
-            "QWidget { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; }"
-            "QWidget::hover { background: #f5f6ff; }"
+            "QWidget { background: #ffffff; border: 1px solid #e5e7ef; border-radius: 12px; }"
+            "QWidget::hover { background: #f6f7fb; border-color: #cdd6ff; }"
         )
 
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -192,7 +192,7 @@ class TitleBar(QWidget):
         layout.setContentsMargins(15, 0, 10, 0)
         layout.setSpacing(0)
 
-        title_label = QLabel("🚀 Лаунчер приложений")
+        title_label = QLabel("Лаунчер приложений")
         title_label.setStyleSheet(TITLE_LABEL_STYLE)
         layout.addWidget(title_label)
         layout.addStretch()
