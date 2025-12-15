@@ -82,7 +82,7 @@ class AppLauncher(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setMinimumSize(*WINDOW_MIN_SIZE)
         self.setStyleSheet(WINDOW_STYLE)
         self.setAcceptDrops(True)
@@ -162,10 +162,10 @@ class AppLauncher(QMainWindow):
         add_btn.clicked.connect(self.add_app)
 
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(15)
+        shadow.setBlurRadius(12)
         shadow.setXOffset(0)
-        shadow.setYOffset(3)
-        shadow.setColor(QColor(251, 146, 60, 120))
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(17, 24, 39, 80))
         add_btn.setGraphicsEffect(shadow)
 
         content_layout.addWidget(add_btn)
