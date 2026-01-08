@@ -105,25 +105,25 @@ class DesignTokens:
 
 TOKENS = DesignTokens(
     colors=ColorTokens(
-        background="#f8fafc",
+        background="#f5f5f4",
         surface="#ffffff",
-        surface_alt="#f1f5f9",
-        surface_hover="#eef2f7",
-        border="#d7dee7",
-        border_soft="#e5eaf1",
-        text_primary="#1f2937",
-        text_secondary="#475569",
-        text_muted="#64748b",
-        accent="#2563eb",
-        accent_soft="#dbeafe",
-        accent_hover="#1d4ed8",
-        danger="#dc2626",
+        surface_alt="#f3f4f6",
+        surface_hover="#eceff1",
+        border="#d1d5db",
+        border_soft="#e5e7eb",
+        text_primary="#1f2933",
+        text_secondary="#4b5563",
+        text_muted="#6b7280",
+        accent="#6b7280",
+        accent_soft="#e5e7eb",
+        accent_hover="#4b5563",
+        danger="#b91c1c",
     ),
     typography=TypographyTokens(
         font_family="'Inter', 'Segoe UI', sans-serif",
-        font_size_sm=12,
-        font_size_md=13,
-        font_size_lg=15,
+        font_size_sm=11,
+        font_size_md=12,
+        font_size_lg=14,
         weight_regular=400,
         weight_semibold=600,
         weight_bold=700,
@@ -131,40 +131,40 @@ TOKENS = DesignTokens(
     ),
     spacing=SpacingTokens(
         none=0,
-        xs=4,
-        sm=8,
-        md=12,
-        lg=16,
-        xl=20,
-        xxl=24,
-    ),
-    radii=RadiusTokens(
-        sm=8,
+        xs=3,
+        sm=6,
         md=10,
         lg=12,
-        xl=14,
+        xl=16,
+        xxl=20,
+    ),
+    radii=RadiusTokens(
+        sm=6,
+        md=8,
+        lg=10,
+        xl=12,
     ),
     shadows=ShadowTokens(
-        floating=ShadowToken(blur=18, offset_x=0, offset_y=6, color="rgba(15, 23, 42, 26)"),
-        raised=ShadowToken(blur=12, offset_x=0, offset_y=4, color="rgba(15, 23, 42, 20)"),
+        floating=ShadowToken(blur=12, offset_x=0, offset_y=4, color="rgba(15, 23, 42, 18)"),
+        raised=ShadowToken(blur=8, offset_x=0, offset_y=3, color="rgba(15, 23, 42, 14)"),
     ),
     sizes=SizeTokens(
-        window_min=(720, 480),
-        grid_button=(140, 116),
-        grid_icon=52,
-        title_bar_height=36,
-        dialog_min_width=480,
-        tray_icon=64,
-        tab_min_width=84,
-        combo_drop_down=20,
+        window_min=(680, 440),
+        grid_button=(120, 96),
+        grid_icon=44,
+        title_bar_height=30,
+        dialog_min_width=420,
+        tray_icon=56,
+        tab_min_width=72,
+        combo_drop_down=18,
     ),
     layout=LayoutTokens(
-        content_margins=(16, 16, 16, 16),
-        content_spacing=12,
-        search_spacing=10,
-        grid_layout_margin=8,
-        grid_layout_spacing=12,
-        list_spacing=10,
+        content_margins=(12, 12, 12, 12),
+        content_spacing=8,
+        search_spacing=6,
+        grid_layout_margin=6,
+        grid_layout_spacing=8,
+        list_spacing=6,
     ),
 )
 
@@ -210,9 +210,9 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     }}
 
     QTabBar::tab:selected {{
-        background: {colors.accent_soft};
+        background: {colors.surface};
         color: {colors.text_primary};
-        border-color: {colors.accent};
+        border-color: {colors.border};
     }}
 
     QTabBar::tab:hover {{
