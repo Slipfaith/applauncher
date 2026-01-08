@@ -4,7 +4,7 @@ import logging
 
 from PySide6.QtWidgets import QLabel, QPushButton, QWidget, QMenu, QSystemTrayIcon, QVBoxLayout
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QFontMetrics, QIcon
 
 from .styles import TOKENS, apply_shadow
 
@@ -27,13 +27,15 @@ class AppButton(QPushButton):
 
         prefix = "★ " if app_data.get("favorite") else ""
         display_name = f"{prefix}{app_data['name']}"
-        self.setText(display_name)
-        icon_path = app_data.get("icon_path", "")
         app_type = app_data.get("type", "exe")
+        display_label = display_name
+        icon_path = app_data.get("icon_path", "")
+        if app_type == "url" and not (icon_path and os.path.exists(icon_path)):
+            display_label = f"🌐 {display_name}"
+        self.setToolTip(display_name)
+        self.setText(self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
             self.setIcon(QIcon(icon_path))
-        elif app_type == "url":
-            self.setText(f"🌐 {display_name}")
         self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
         # Fixed size for FlowLayout consistency
         self.setFixedSize(*TOKENS.sizes.grid_button)
@@ -42,6 +44,43 @@ class AppButton(QPushButton):
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def _wrap_text(self, text: str, max_lines: int = 2) -> str:
+        metrics = QFontMetrics(self.font())
+        max_width = TOKENS.sizes.grid_button[0] - (TOKENS.spacing.md * 2)
+        if max_width <= 0 or not text:
+            return text
+        words = text.split()
+        if not words:
+            return text
+
+        lines = []
+        current = ""
+        word_index = 0
+        for idx, word in enumerate(words):
+            candidate = f"{current} {word}".strip()
+            if metrics.horizontalAdvance(candidate) <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+                if len(lines) == max_lines - 1:
+                    word_index = idx
+                    break
+            word_index = idx + 1
+
+        if current and len(lines) < max_lines:
+            lines.append(current)
+
+        truncated = word_index < len(words)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            truncated = True
+
+        if lines and (truncated or metrics.horizontalAdvance(lines[-1]) > max_width):
+            lines[-1] = metrics.elidedText(lines[-1], Qt.ElideRight, max_width)
+
+        return "\n".join(lines)
 
     def show_context_menu(self, pos):
         menu = QMenu(self)

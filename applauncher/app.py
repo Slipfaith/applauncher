@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 
 from PySide6.QtWidgets import (
     QApplication,
-    QButtonGroup,
     QHBoxLayout,
     QInputDialog,
     QLineEdit,
@@ -149,26 +148,11 @@ class AppLauncher(QMainWindow):
         self.search_input.returnPressed.connect(self.launch_top_result)
         search_layout.addWidget(self.search_input)
 
-        self.view_toggle_group = QButtonGroup(self)
-        self.view_toggle_group.setExclusive(True)
-
-        self.list_toggle = QPushButton("☰")
-        self.list_toggle.setCheckable(True)
-        self.list_toggle.setProperty("variant", "control")
-        self.list_toggle.setProperty("role", "viewToggle")
-        self.list_toggle.setToolTip("Список")
-        self.list_toggle.clicked.connect(lambda: self.set_view_mode("list"))
-        self.view_toggle_group.addButton(self.list_toggle)
-        search_layout.addWidget(self.list_toggle)
-
-        self.grid_toggle = QPushButton("▦")
-        self.grid_toggle.setCheckable(True)
-        self.grid_toggle.setProperty("variant", "control")
-        self.grid_toggle.setProperty("role", "viewToggle")
-        self.grid_toggle.setToolTip("Сетка")
-        self.grid_toggle.clicked.connect(lambda: self.set_view_mode("grid"))
-        self.view_toggle_group.addButton(self.grid_toggle)
-        search_layout.addWidget(self.grid_toggle)
+        self.view_toggle = QPushButton()
+        self.view_toggle.setProperty("variant", "control")
+        self.view_toggle.setProperty("role", "viewToggle")
+        self.view_toggle.clicked.connect(self.toggle_view_mode)
+        search_layout.addWidget(self.view_toggle)
 
         controls_layout.addLayout(search_layout)
         content_layout.addLayout(controls_layout)
@@ -373,7 +357,7 @@ class AppLauncher(QMainWindow):
         self._last_render_state = render_state
 
         filtered = self.repository.get_filtered_apps(query, current_group)
-        self._sync_view_toggles()
+        self._sync_view_toggle()
 
         if self.view_mode == "grid":
             self.view_stack.setCurrentWidget(self.grid_widget)
@@ -581,14 +565,14 @@ class AppLauncher(QMainWindow):
         for group in self.groups:
             self.tabs.addTab(QWidget(), group)
         self.tabs.addTab(QWidget(), "+")
-        self._sync_view_toggles()
+        self._sync_view_toggle()
         if self.view_mode == "list":
             self.view_stack.setCurrentWidget(self.list_container)
         else:
             self.view_stack.setCurrentWidget(self.grid_widget)
 
     def on_tab_clicked(self, index: int):
-        if index == self.tabs.count() - 1:
+        if self.tabs.tabText(index) == "+":
             text, ok = QInputDialog.getText(self, "Новая группа", "Название группы:")
             if ok and text:
                 self.groups.append(text)
@@ -600,7 +584,7 @@ class AppLauncher(QMainWindow):
     def show_tab_context_menu(self, pos):
         tab_bar = self.tabs.tabBar()
         index = tab_bar.tabAt(pos)
-        if index < 0 or index == self.tabs.count() - 1:
+        if index < 0 or tab_bar.tabText(index) == "+":
             return
         group = tab_bar.tabText(index)
         if group == DEFAULT_GROUP:
@@ -628,17 +612,25 @@ class AppLauncher(QMainWindow):
 
     def set_view_mode(self, mode: str):
         if mode not in {"grid", "list"} or self.view_mode == mode:
-            self._sync_view_toggles()
+            self._sync_view_toggle()
             return
         self.view_mode = mode
         self._last_render_state = None
         self.schedule_save()
         self.refresh_view()
 
-    def _sync_view_toggles(self):
+    def toggle_view_mode(self):
+        target_mode = "list" if self.view_mode == "grid" else "grid"
+        self.set_view_mode(target_mode)
+
+    def _sync_view_toggle(self):
         is_grid = self.view_mode == "grid"
-        self.grid_toggle.setChecked(is_grid)
-        self.list_toggle.setChecked(not is_grid)
+        if is_grid:
+            self.view_toggle.setText("☰")
+            self.view_toggle.setToolTip("Список")
+        else:
+            self.view_toggle.setText("⧉")
+            self.view_toggle.setToolTip("Сетка")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
