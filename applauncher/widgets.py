@@ -2,27 +2,11 @@
 import os
 import logging
 
-from PySide6.QtWidgets import (
-    QLabel,
-    QPushButton,
-    QWidget,
-    QMenu,
-    QGraphicsDropShadowEffect,
-    QSystemTrayIcon,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QLabel, QPushButton, QWidget, QMenu, QSystemTrayIcon, QVBoxLayout
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QIcon, QColor
+from PySide6.QtGui import QIcon
 
-from .styles import (
-    APP_BUTTON_STYLE,
-    GRID_BUTTON_SIZE,
-    MENU_STYLE,
-    TITLE_BAR_STYLE,
-    TITLE_LABEL_STYLE,
-    TITLE_BAR_BUTTON_STYLE,
-    TITLE_BAR_CLOSE_STYLE,
-)
+from .styles import TOKENS, apply_shadow
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +23,7 @@ class AppButton(QPushButton):
     def __init__(self, app_data: dict, parent=None):
         super().__init__(parent)
         self.app_data = app_data
+        self.setProperty("role", "appTile")
 
         prefix = "★ " if app_data.get("favorite") else ""
         display_name = f"{prefix}{app_data['name']}"
@@ -49,45 +34,17 @@ class AppButton(QPushButton):
             self.setIcon(QIcon(icon_path))
         elif app_type == "url":
             self.setText(f"🌐 {display_name}")
-        self.setIconSize(QSize(56, 56))
+        self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
         # Fixed size for FlowLayout consistency
-        self.setFixedSize(*GRID_BUTTON_SIZE)
-        self.setStyleSheet(APP_BUTTON_STYLE)
-
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(14)
-        shadow.setXOffset(0)
-        shadow.setYOffset(3)
-        shadow.setColor(QColor(15, 23, 42, 60))
-        self.setGraphicsEffect(shadow)
+        self.setFixedSize(*TOKENS.sizes.grid_button)
+        apply_shadow(self, TOKENS.shadows.raised)
 
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
-    def enterEvent(self, event):
-        super().enterEvent(event)
-        effect = self.graphicsEffect()
-        if effect:
-            # Simple "animation" by step changes is effectively instant,
-            # but creates a snappy feel.
-            # For real animation we would need to subclass QGraphicsEffect or wrap it.
-            # Here we just make it distinct.
-            effect.setBlurRadius(18)
-            effect.setYOffset(6)
-            effect.setColor(QColor(59, 130, 246, 90))
-
-    def leaveEvent(self, event):
-        super().leaveEvent(event)
-        effect = self.graphicsEffect()
-        if effect:
-            effect.setBlurRadius(14)
-            effect.setYOffset(3)
-            effect.setColor(QColor(15, 23, 42, 60))
-
     def show_context_menu(self, pos):
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
         edit_action = menu.addAction("✏️ Редактировать")
         delete_action = menu.addAction("🗑️ Удалить")
         open_folder_action = menu.addAction("📂 Открыть расположение")
@@ -118,12 +75,18 @@ class AppListItem(QWidget):
     def __init__(self, app_data: dict, parent=None):
         super().__init__(parent)
         self.app_data = app_data
+        self.setProperty("role", "listItem")
 
         from PySide6.QtWidgets import QHBoxLayout
 
         layout = QHBoxLayout()
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(8)
+        layout.setContentsMargins(
+            TOKENS.spacing.sm,
+            TOKENS.spacing.xs,
+            TOKENS.spacing.sm,
+            TOKENS.spacing.xs,
+        )
+        layout.setSpacing(TOKENS.spacing.sm)
 
         icon_label = QLabel()
         icon_path = app_data.get("icon_path", "")
@@ -134,21 +97,18 @@ class AppListItem(QWidget):
         text_layout = QVBoxLayout()
         prefix = "★ " if app_data.get("favorite") else ""
         name_label = QLabel(f"{prefix}{app_data['name']}")
-        name_label.setStyleSheet("font-weight: 700; color: #0f172a;")
+        name_label.setProperty("role", "listTitle")
         text_layout.addWidget(name_label)
 
         path_label = QLabel(app_data["path"])
-        path_label.setStyleSheet("color: #6b7280;")
+        path_label.setProperty("role", "listSubtitle")
         text_layout.addWidget(path_label)
         layout.addLayout(text_layout)
 
         layout.addStretch()
 
         self.setLayout(layout)
-        self.setStyleSheet(
-            "QWidget { background: rgba(255,255,255,0.9); border: 1px solid #e5e7eb; border-radius: 12px; }"
-            "QWidget::hover { background: #f3f4f6; border-color: #d1d5db; }"
-        )
+        apply_shadow(self, TOKENS.shadows.floating)
 
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
@@ -160,7 +120,6 @@ class AppListItem(QWidget):
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
         edit_action = menu.addAction("✏️ Редактировать")
         delete_action = menu.addAction("🗑️ Удалить")
         open_folder_action = menu.addAction("📂 Открыть расположение")
@@ -183,32 +142,44 @@ class TitleBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.setFixedHeight(32)
-        self.setStyleSheet(TITLE_BAR_STYLE)
+        self.setObjectName("titleBar")
+        self.setFixedHeight(TOKENS.sizes.title_bar_height)
 
         from PySide6.QtWidgets import QHBoxLayout  # lazy import to avoid circular deps
 
         layout = QHBoxLayout()
-        layout.setContentsMargins(8, 0, 8, 0)
-        layout.setSpacing(4)
+        layout.setContentsMargins(
+            TOKENS.spacing.sm,
+            TOKENS.spacing.none,
+            TOKENS.spacing.sm,
+            TOKENS.spacing.none,
+        )
+        layout.setSpacing(TOKENS.spacing.xs)
 
         spacer = QLabel()
-        spacer.setFixedWidth(6)
+        spacer.setFixedWidth(TOKENS.spacing.sm)
         layout.addWidget(spacer)
+
+        title_label = QLabel("Лаунчер")
+        title_label.setProperty("role", "titleText")
+        layout.addWidget(title_label)
         layout.addStretch()
 
         min_btn = QPushButton("−")
-        min_btn.setStyleSheet(TITLE_BAR_BUTTON_STYLE)
+        min_btn.setProperty("role", "titleButton")
+        min_btn.setProperty("variant", "ghost")
         min_btn.clicked.connect(parent.showMinimized)
         layout.addWidget(min_btn)
 
         max_btn = QPushButton("□")
-        max_btn.setStyleSheet(TITLE_BAR_BUTTON_STYLE)
+        max_btn.setProperty("role", "titleButton")
+        max_btn.setProperty("variant", "ghost")
         max_btn.clicked.connect(self.toggle_maximize)
         layout.addWidget(max_btn)
 
         close_btn = QPushButton("✕")
-        close_btn.setStyleSheet(TITLE_BAR_CLOSE_STYLE)
+        close_btn.setProperty("role", "titleButton")
+        close_btn.setProperty("variant", "danger")
         close_btn.clicked.connect(self.close_to_tray)
         layout.addWidget(close_btn)
 

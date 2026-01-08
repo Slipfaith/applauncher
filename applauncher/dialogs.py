@@ -13,15 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .styles import (
-    CANCEL_BUTTON_STYLE,
-    COMBO_BOX_STYLE,
-    DIALOG_STYLE,
-    LINE_EDIT_STYLE,
-    PRIMARY_BUTTON_STYLE,
-    SAVE_BUTTON_STYLE,
-    SECONDARY_BUTTON_STYLE,
-)
+from .styles import TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -30,19 +22,22 @@ class AddAppDialog(QDialog):
     def __init__(self, parent=None, edit_mode: bool = False, app_data: dict | None = None, groups: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Редактировать" if edit_mode else "Добавить элемент")
-        self.setMinimumWidth(450)
-        self.setStyleSheet(DIALOG_STYLE)
+        self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
         groups = groups or ["Общее"]
 
         layout = QVBoxLayout()
-        layout.setSpacing(15)
-        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(TOKENS.spacing.lg)
+        layout.setContentsMargins(
+            TOKENS.spacing.xl,
+            TOKENS.spacing.xl,
+            TOKENS.spacing.xl,
+            TOKENS.spacing.xl,
+        )
 
         type_label = QLabel("Тип элемента")
         layout.addWidget(type_label)
         self.type_combo = QComboBox()
         self.type_combo.addItems(["💻 Приложение", "🌐 Веб-сайт"])
-        self.type_combo.setStyleSheet(COMBO_BOX_STYLE)
         if app_data and app_data.get("type") == "url":
             self.type_combo.setCurrentIndex(1)
         self.type_combo.currentIndexChanged.connect(self.on_type_changed)
@@ -51,7 +46,6 @@ class AddAppDialog(QDialog):
         name_label = QLabel("Название")
         layout.addWidget(name_label)
         self.name_input = QLineEdit()
-        self.name_input.setStyleSheet(LINE_EDIT_STYLE)
         if app_data:
             self.name_input.setText(app_data.get("name", ""))
         layout.addWidget(self.name_input)
@@ -60,13 +54,12 @@ class AddAppDialog(QDialog):
         layout.addWidget(self.path_label)
         path_layout = QHBoxLayout()
         self.path_input = QLineEdit()
-        self.path_input.setStyleSheet(LINE_EDIT_STYLE)
         if app_data:
             self.path_input.setText(app_data.get("path", ""))
         path_layout.addWidget(self.path_input)
 
         self.browse_btn = QPushButton("📁 Обзор")
-        self.browse_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        self.browse_btn.setProperty("variant", "accent")
         self.browse_btn.clicked.connect(self.browse_path)
         path_layout.addWidget(self.browse_btn)
         layout.addLayout(path_layout)
@@ -75,13 +68,12 @@ class AddAppDialog(QDialog):
         layout.addWidget(icon_label)
         icon_layout = QHBoxLayout()
         self.icon_input = QLineEdit()
-        self.icon_input.setStyleSheet(LINE_EDIT_STYLE)
         if app_data:
             self.icon_input.setText(app_data.get("icon_path", ""))
         icon_layout.addWidget(self.icon_input)
 
         icon_btn = QPushButton("🖼️ Обзор")
-        icon_btn.setStyleSheet(SECONDARY_BUTTON_STYLE)
+        icon_btn.setProperty("variant", "secondary")
         icon_btn.clicked.connect(self.browse_icon)
         icon_layout.addWidget(icon_btn)
         layout.addLayout(icon_layout)
@@ -96,20 +88,19 @@ class AddAppDialog(QDialog):
             if existing_group not in groups:
                 self.group_input.addItem(existing_group)
             self.group_input.setCurrentText(existing_group)
-        self.group_input.setStyleSheet(COMBO_BOX_STYLE)
         layout.addWidget(self.group_input)
 
         layout.addStretch()
 
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(10)
+        btn_layout.setSpacing(TOKENS.spacing.sm)
 
         cancel_btn = QPushButton("Отмена")
-        cancel_btn.setStyleSheet(CANCEL_BUTTON_STYLE)
+        cancel_btn.setProperty("variant", "secondary")
         cancel_btn.clicked.connect(self.reject)
 
         save_btn = QPushButton("💾 Сохранить")
-        save_btn.setStyleSheet(SAVE_BUTTON_STYLE)
+        save_btn.setProperty("variant", "accent")
         save_btn.clicked.connect(self.accept)
 
         btn_layout.addStretch()
