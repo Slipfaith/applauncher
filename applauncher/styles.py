@@ -195,28 +195,48 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QTabWidget#mainTabs::pane {{
         border: none;
-        margin-top: {spacing.xs}px;
+        margin-top: {spacing.sm}px;
+    }}
+
+    QTabBar {{
+        background-color: {colors.surface_alt};
+        border-radius: {radii.lg}px;
+        padding: {spacing.xs}px;
     }}
 
     QTabBar::tab {{
-        background: {colors.surface_alt};
+        background: {colors.surface};
         color: {colors.text_secondary};
-        border: 1px solid {colors.border};
-        border-radius: {radii.md}px;
-        padding: {spacing.xs}px {spacing.md}px;
-        margin-right: {spacing.sm}px;
+        border: 1px solid {colors.border_soft};
+        border-radius: {radii.lg}px;
+        padding: {spacing.xs}px {spacing.lg}px;
+        margin-right: {spacing.xs}px;
         min-width: {tokens.sizes.tab_min_width}px;
         font-weight: {typography.weight_semibold};
     }}
 
     QTabBar::tab:selected {{
-        background: {colors.surface};
+        background: {colors.accent_soft};
         color: {colors.text_primary};
-        border-color: {colors.border};
+        border-color: {colors.accent};
     }}
 
     QTabBar::tab:hover {{
         background: {colors.surface_hover};
+        border-color: {colors.border};
+    }}
+
+    QTabBar::tab:last {{
+        background: {colors.accent};
+        color: {colors.surface};
+        border-color: {colors.accent};
+        min-width: 32px;
+        padding: {spacing.xs}px {spacing.sm}px;
+    }}
+
+    QTabBar::tab:last:hover {{
+        background: {colors.accent_hover};
+        border-color: {colors.accent_hover};
     }}
 
     QWidget#titleBar {{
