@@ -8,10 +8,8 @@ from urllib.parse import urlparse
 
 from PySide6.QtWidgets import (
     QApplication,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -40,23 +38,7 @@ from .config import ConfigError, DEFAULT_CONFIG, load_config, save_config
 from .dialogs import AddAppDialog
 from .icons import extract_icon_with_fallback
 from .layouts import FlowLayout
-from .styles import (
-    ADD_BUTTON_STYLE,
-    CONTAINER_STYLE,
-    CONTENT_MARGINS,
-    CONTENT_SPACING,
-    CONTROL_BUTTON_STYLE,
-    GRID_LAYOUT_MARGIN,
-    GRID_LAYOUT_SPACING,
-    GRID_WIDGET_STYLE,
-    LINE_EDIT_STYLE,
-    LIST_SPACING,
-    MENU_STYLE,
-    SEARCH_SPACING,
-    TABS_STYLE,
-    WINDOW_STYLE,
-    WINDOW_MIN_SIZE,
-)
+from .styles import TOKENS, apply_design_system, apply_shadow
 from .repository import AppRepository, DEFAULT_GROUP
 from .widgets import AppButton, AppListItem, TitleBar
 
@@ -83,8 +65,8 @@ class AppLauncher(QMainWindow):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumSize(*WINDOW_MIN_SIZE)
-        self.setStyleSheet(WINDOW_STYLE)
+        self.setObjectName("mainWindow")
+        self.setMinimumSize(*TOKENS.sizes.window_min)
         self.setAcceptDrops(True)
 
         self.config_file = "launcher_config.json"
@@ -107,12 +89,17 @@ class AppLauncher(QMainWindow):
         self.create_tray_icon()
 
         container = QWidget()
-        container.setStyleSheet(CONTAINER_STYLE)
+        container.setObjectName("centralContainer")
         self.setCentralWidget(container)
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+        )
+        main_layout.setSpacing(TOKENS.spacing.none)
         container.setLayout(main_layout)
 
         self.title_bar = TitleBar(self)
@@ -120,29 +107,39 @@ class AppLauncher(QMainWindow):
 
         content_widget = QWidget()
         content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(*CONTENT_MARGINS)
-        content_layout.setSpacing(CONTENT_SPACING)
+        content_layout.setContentsMargins(*TOKENS.layout.content_margins)
+        content_layout.setSpacing(TOKENS.layout.content_spacing)
         content_widget.setLayout(content_layout)
 
         controls_layout = QHBoxLayout()
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(CONTENT_SPACING)
+        controls_layout.setContentsMargins(
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+        )
+        controls_layout.setSpacing(TOKENS.layout.content_spacing)
 
         self.tabs = QTabWidget()
         self.tabs.setMovable(True)
         self.tabs.setTabsClosable(False)
         self.tabs.setDocumentMode(True)
-        self.tabs.setStyleSheet(TABS_STYLE)
+        self.tabs.setObjectName("mainTabs")
         self.tabs.tabBarClicked.connect(self.on_tab_clicked)
         self.tabs.currentChanged.connect(lambda _: self.refresh_view())
         controls_layout.addWidget(self.tabs, 2)
 
         search_layout = QHBoxLayout()
-        search_layout.setContentsMargins(0, 0, 0, 0)
-        search_layout.setSpacing(SEARCH_SPACING)
+        search_layout.setContentsMargins(
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+        )
+        search_layout.setSpacing(TOKENS.layout.search_spacing)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Поиск приложений...")
-        self.search_input.setStyleSheet(LINE_EDIT_STYLE)
+        self.search_input.setObjectName("searchInput")
         self.search_input.textChanged.connect(self.refresh_view)
         self.search_input.returnPressed.connect(self.launch_top_result)
         search_layout.addWidget(self.search_input)
@@ -150,7 +147,7 @@ class AppLauncher(QMainWindow):
         self.view_toggle = QPushButton("Сетка")
         self.view_toggle.setCheckable(True)
         self.view_toggle.setChecked(True)
-        self.view_toggle.setStyleSheet(CONTROL_BUTTON_STYLE)
+        self.view_toggle.setProperty("variant", "control")
         self.view_toggle.clicked.connect(self.toggle_view_mode)
         search_layout.addWidget(self.view_toggle)
 
@@ -158,32 +155,30 @@ class AppLauncher(QMainWindow):
         content_layout.addLayout(controls_layout)
 
         add_btn = QPushButton("Добавить приложение")
-        add_btn.setStyleSheet(ADD_BUTTON_STYLE)
+        add_btn.setProperty("variant", "accent")
         add_btn.clicked.connect(self.add_app)
-
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(12)
-        shadow.setXOffset(0)
-        shadow.setYOffset(2)
-        shadow.setColor(QColor(17, 24, 39, 80))
-        add_btn.setGraphicsEffect(shadow)
+        apply_shadow(add_btn, TOKENS.shadows.raised)
 
         content_layout.addWidget(add_btn)
 
         self.grid_widget = QWidget()
-        self.grid_widget.setStyleSheet(GRID_WIDGET_STYLE)
         self.grid_layout = FlowLayout(
             self.grid_widget,
-            margin=GRID_LAYOUT_MARGIN,
-            h_spacing=GRID_LAYOUT_SPACING,
-            v_spacing=GRID_LAYOUT_SPACING,
+            margin=TOKENS.layout.grid_layout_margin,
+            h_spacing=TOKENS.layout.grid_layout_spacing,
+            v_spacing=TOKENS.layout.grid_layout_spacing,
         )
         self.grid_widget.setLayout(self.grid_layout)
 
         self.list_container = QWidget()
         self.list_layout = QVBoxLayout()
-        self.list_layout.setSpacing(LIST_SPACING)
-        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSpacing(TOKENS.layout.list_spacing)
+        self.list_layout.setContentsMargins(
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+        )
         self.list_container.setLayout(self.list_layout)
 
         self.view_stack = QStackedWidget()
@@ -192,7 +187,6 @@ class AppLauncher(QMainWindow):
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet(GRID_WIDGET_STYLE)
         self.scroll_area.setWidget(self.view_stack)
 
         content_layout.addWidget(self.scroll_area)
@@ -207,13 +201,12 @@ class AppLauncher(QMainWindow):
     def create_tray_icon(self):
         self.tray_icon = QSystemTrayIcon(self)
 
-        pixmap = QPixmap(64, 64)
-        pixmap.fill(QColor(74, 144, 226))
+        pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
+        pixmap.fill(QColor(TOKENS.colors.accent))
         icon = QIcon(pixmap)
         self.tray_icon.setIcon(icon)
 
         tray_menu = QMenu()
-        tray_menu.setStyleSheet(MENU_STYLE)
 
         show_action = tray_menu.addAction("🚀 Показать")
         show_action.triggered.connect(self.show)
@@ -619,6 +612,7 @@ def run_app():
     app = QApplication([])
     app.setStyle("Fusion")
     app.setQuitOnLastWindowClosed(False)
+    apply_design_system(app)
 
     server_name = "applauncher_single_instance"
     socket = QLocalSocket()
