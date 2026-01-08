@@ -195,13 +195,13 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QTabWidget#mainTabs::pane {{
         border: none;
-        margin-top: {spacing.sm}px;
+        margin-top: 0;
     }}
 
     QTabBar {{
-        background-color: {colors.surface_alt};
+        background-color: transparent;
         border-radius: {radii.lg}px;
-        padding: {spacing.xs}px;
+        padding: 0;
     }}
 
     QTabBar::tab {{
