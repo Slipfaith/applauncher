@@ -108,7 +108,6 @@ class AppListItem(QWidget):
         layout.addStretch()
 
         self.setLayout(layout)
-        apply_shadow(self, TOKENS.shadows.floating)
 
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)

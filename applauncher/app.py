@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QHBoxLayout,
     QInputDialog,
     QLineEdit,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QSystemTrayIcon,
     QTabWidget,
@@ -111,7 +113,7 @@ class AppLauncher(QMainWindow):
         content_layout.setSpacing(TOKENS.layout.content_spacing)
         content_widget.setLayout(content_layout)
 
-        controls_layout = QHBoxLayout()
+        controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(
             TOKENS.spacing.none,
             TOKENS.spacing.none,
@@ -121,13 +123,16 @@ class AppLauncher(QMainWindow):
         controls_layout.setSpacing(TOKENS.layout.content_spacing)
 
         self.tabs = QTabWidget()
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.tabs.setMovable(True)
         self.tabs.setTabsClosable(False)
         self.tabs.setDocumentMode(True)
         self.tabs.setObjectName("mainTabs")
         self.tabs.tabBarClicked.connect(self.on_tab_clicked)
         self.tabs.currentChanged.connect(lambda _: self.refresh_view())
-        controls_layout.addWidget(self.tabs, 2)
+        self.tabs.tabBar().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tabs.tabBar().customContextMenuRequested.connect(self.show_tab_context_menu)
+        controls_layout.addWidget(self.tabs)
 
         search_layout = QHBoxLayout()
         search_layout.setContentsMargins(
@@ -144,14 +149,28 @@ class AppLauncher(QMainWindow):
         self.search_input.returnPressed.connect(self.launch_top_result)
         search_layout.addWidget(self.search_input)
 
-        self.view_toggle = QPushButton("Сетка")
-        self.view_toggle.setCheckable(True)
-        self.view_toggle.setChecked(True)
-        self.view_toggle.setProperty("variant", "control")
-        self.view_toggle.clicked.connect(self.toggle_view_mode)
-        search_layout.addWidget(self.view_toggle)
+        self.view_toggle_group = QButtonGroup(self)
+        self.view_toggle_group.setExclusive(True)
 
-        controls_layout.addLayout(search_layout, 3)
+        self.list_toggle = QPushButton("☰")
+        self.list_toggle.setCheckable(True)
+        self.list_toggle.setProperty("variant", "control")
+        self.list_toggle.setProperty("role", "viewToggle")
+        self.list_toggle.setToolTip("Список")
+        self.list_toggle.clicked.connect(lambda: self.set_view_mode("list"))
+        self.view_toggle_group.addButton(self.list_toggle)
+        search_layout.addWidget(self.list_toggle)
+
+        self.grid_toggle = QPushButton("▦")
+        self.grid_toggle.setCheckable(True)
+        self.grid_toggle.setProperty("variant", "control")
+        self.grid_toggle.setProperty("role", "viewToggle")
+        self.grid_toggle.setToolTip("Сетка")
+        self.grid_toggle.clicked.connect(lambda: self.set_view_mode("grid"))
+        self.view_toggle_group.addButton(self.grid_toggle)
+        search_layout.addWidget(self.grid_toggle)
+
+        controls_layout.addLayout(search_layout)
         content_layout.addLayout(controls_layout)
 
         add_btn = QPushButton("Добавить приложение")
@@ -354,15 +373,12 @@ class AppLauncher(QMainWindow):
         self._last_render_state = render_state
 
         filtered = self.repository.get_filtered_apps(query, current_group)
+        self._sync_view_toggles()
 
         if self.view_mode == "grid":
-            self.view_toggle.setText("🔲 Сетка")
-            self.view_toggle.setChecked(True)
             self.view_stack.setCurrentWidget(self.grid_widget)
             self.populate_grid(filtered)
         else:
-            self.view_toggle.setText("📄 Список")
-            self.view_toggle.setChecked(False)
             self.view_stack.setCurrentWidget(self.list_container)
             self.populate_list(filtered)
 
@@ -565,13 +581,10 @@ class AppLauncher(QMainWindow):
         for group in self.groups:
             self.tabs.addTab(QWidget(), group)
         self.tabs.addTab(QWidget(), "+")
+        self._sync_view_toggles()
         if self.view_mode == "list":
-            self.view_toggle.setText("Список")
-            self.view_toggle.setChecked(False)
             self.view_stack.setCurrentWidget(self.list_container)
         else:
-            self.view_toggle.setText("Сетка")
-            self.view_toggle.setChecked(True)
             self.view_stack.setCurrentWidget(self.grid_widget)
 
     def on_tab_clicked(self, index: int):
@@ -584,11 +597,48 @@ class AppLauncher(QMainWindow):
                 self.schedule_save()
         self.refresh_view()
 
-    def toggle_view_mode(self):
-        self.view_mode = "list" if self.view_mode == "grid" else "grid"
+    def show_tab_context_menu(self, pos):
+        tab_bar = self.tabs.tabBar()
+        index = tab_bar.tabAt(pos)
+        if index < 0 or index == self.tabs.count() - 1:
+            return
+        group = tab_bar.tabText(index)
+        if group == DEFAULT_GROUP:
+            return
+        menu = QMenu(self)
+        delete_action = menu.addAction("🗑️ Удалить")
+        if menu.exec(tab_bar.mapToGlobal(pos)) == delete_action:
+            self.delete_group(group)
+
+    def delete_group(self, group: str):
+        if group == DEFAULT_GROUP or group not in self.groups:
+            return
+        for app in list(self.repository.apps):
+            if app.get("group", DEFAULT_GROUP) == group:
+                updated = dict(app)
+                updated["group"] = DEFAULT_GROUP
+                self.repository.update_app(app["path"], updated)
+        self.groups = [name for name in self.groups if name != group]
+        self.setup_tabs()
+        if self.current_group == group:
+            self.tabs.setCurrentIndex(self.groups.index(DEFAULT_GROUP))
         self._last_render_state = None
         self.schedule_save()
         self.refresh_view()
+
+    def set_view_mode(self, mode: str):
+        if mode not in {"grid", "list"} or self.view_mode == mode:
+            self._sync_view_toggles()
+            return
+        self.view_mode = mode
+        self._last_render_state = None
+        self.schedule_save()
+        self.refresh_view()
+
+    def _sync_view_toggles(self):
+        is_grid = self.view_mode == "grid"
+        self.grid_toggle.setChecked(is_grid)
+        self.list_toggle.setChecked(not is_grid)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

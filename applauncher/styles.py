@@ -294,6 +294,12 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         color: {colors.text_primary};
     }}
 
+    QPushButton[role="viewToggle"] {{
+        padding: {spacing.xs}px {spacing.sm}px;
+        min-width: {tokens.sizes.combo_drop_down}px;
+        font-size: {typography.font_size_md}px;
+    }}
+
     QPushButton[variant="secondary"] {{
         background-color: {colors.surface_alt};
         border-color: {colors.border};
