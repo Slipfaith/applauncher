@@ -91,9 +91,7 @@ class ShortcutService(QObject):
         for app in auto_apps:
             normalized = os.path.normcase(os.path.abspath(app["path"]))
             if normalized not in normalized_shortcuts:
-                self._repository.delete_app(app["path"])
-                changed = True
-                logger.info("Удален ярлык из списка: %s", app["path"])
+                logger.debug("Пропущено авто-удаление ярлыка: %s", app["path"])
 
         for normalized, path_value in normalized_shortcuts.items():
             if normalized in manual_paths:
