@@ -40,7 +40,6 @@ from .repository import DEFAULT_GROUP
 from .services.icon_service import IconService
 from .services.launch_service import LaunchService
 from .services.launcher_service import LauncherService
-from .services.shortcut_service import ShortcutService
 from .services.validation import normalize_url, read_url_shortcut, validate_app_data
 from .widgets import AppButton, AppListItem, TitleBar
 
@@ -103,9 +102,6 @@ class AppLauncher(QMainWindow):
         self.launch_service = LaunchService()
         self.icon_service = IconService(self.repository)
         self.icon_service.iconUpdated.connect(self._on_icon_updated)
-        self.shortcut_service = ShortcutService(self.repository)
-        self.shortcut_service.shortcutsChanged.connect(self._on_shortcuts_changed)
-
         self.create_tray_icon()
 
         container = QWidget()
@@ -236,7 +232,6 @@ class AppLauncher(QMainWindow):
         main_layout.addWidget(content_widget)
 
         self.load_state()
-        self.shortcut_service.setup()
         self.setup_shortcuts()
         self.refresh_view()
 
@@ -577,10 +572,6 @@ class AppLauncher(QMainWindow):
         self.service.view_mode = value
 
     def _on_icon_updated(self, _path: str, _icon_path: str) -> None:
-        self.schedule_save()
-        self.refresh_view()
-
-    def _on_shortcuts_changed(self) -> None:
         self.schedule_save()
         self.refresh_view()
 
