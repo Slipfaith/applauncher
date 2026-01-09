@@ -1,0 +1,123 @@
+"""Service layer for managing launcher state and persistence."""
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from ..config import ConfigError, DEFAULT_CONFIG, load_config, save_config
+from ..repository import AppRepository, DEFAULT_GROUP
+
+logger = logging.getLogger(__name__)
+
+
+class LauncherService:
+    """Business logic for managing apps, groups, and configuration."""
+
+    def __init__(self, config_file: str = "launcher_config.json", repository: Optional[AppRepository] = None):
+        self.config_file = config_file
+        self.repository = repository or AppRepository()
+        self.groups: list[str] = [DEFAULT_GROUP]
+        self.view_mode = DEFAULT_CONFIG["view_mode"]
+
+    @property
+    def version(self) -> int:
+        return self.repository.version
+
+    def load_state(self) -> Optional[str]:
+        try:
+            data = load_config(self.config_file)
+        except ConfigError as err:
+            logger.warning("Ошибка загрузки конфигурации: %s", err)
+            data = DEFAULT_CONFIG.copy()
+            return str(err)
+
+        apps = [app for app in data.get("apps", []) if app.get("source") != "auto"]
+        self.repository.set_apps(apps)
+        self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
+        self.view_mode = data.get("view_mode", self.view_mode)
+        for app in self.repository.apps:
+            group_name = app.get("group", DEFAULT_GROUP)
+            if group_name not in self.groups:
+                self.groups.append(group_name)
+        return None
+
+    def build_config_payload(self) -> dict:
+        return {
+            "apps": self.repository.apps,
+            "groups": self.groups or [DEFAULT_GROUP],
+            "view_mode": self.view_mode,
+        }
+
+    def persist_config(self) -> Optional[str]:
+        payload = self.build_config_payload()
+        try:
+            save_config(self.config_file, payload)
+            logger.info("Конфигурация сохранена")
+            return None
+        except ConfigError as err:
+            logger.warning("Ошибка сохранения конфигурации: %s", err)
+            return str(err)
+
+    def ensure_group(self, group: str) -> None:
+        if group and group not in self.groups:
+            self.groups.append(group)
+
+    def add_app(self, app_data: dict) -> dict:
+        self.ensure_group(app_data.get("group", DEFAULT_GROUP))
+        return self.repository.add_app(app_data)
+
+    def update_app(self, original_path: str, updated_data: dict) -> Optional[dict]:
+        self.ensure_group(updated_data.get("group", DEFAULT_GROUP))
+        return self.repository.update_app(original_path, updated_data)
+
+    def delete_app(self, app_path: str) -> bool:
+        return self.repository.delete_app(app_path)
+
+    def clear_apps(self) -> None:
+        self.repository.clear_apps()
+
+    def toggle_favorite(self, app_path: str) -> Optional[dict]:
+        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        if not target:
+            return None
+        updated = dict(target)
+        updated["favorite"] = not target.get("favorite", False)
+        return self.repository.update_app(target["path"], updated)
+
+    def move_app_to_group(self, app_path: str, group: str) -> Optional[dict]:
+        if group not in self.groups:
+            return None
+        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        if not target:
+            return None
+        updated = dict(target)
+        updated["group"] = group
+        return self.repository.update_app(target["path"], updated)
+
+    def remove_app_from_group(self, app_path: str, group: str) -> Optional[dict]:
+        if group == DEFAULT_GROUP:
+            return None
+        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        if not target:
+            return None
+        if target.get("group", DEFAULT_GROUP) != group:
+            return None
+        updated = dict(target)
+        updated["group"] = DEFAULT_GROUP
+        return self.repository.update_app(target["path"], updated)
+
+    def delete_group(self, group: str) -> None:
+        if group == DEFAULT_GROUP or group not in self.groups:
+            return
+        for app in list(self.repository.apps):
+            if app.get("group", DEFAULT_GROUP) == group:
+                updated = dict(app)
+                updated["group"] = DEFAULT_GROUP
+                self.repository.update_app(app["path"], updated)
+        self.groups = [name for name in self.groups if name != group]
+
+    def filtered_apps(self, query: str, group: str) -> list[dict]:
+        return self.repository.get_filtered_apps(query, group)
+
+    def increment_usage(self, app_path: str) -> Optional[dict]:
+        return self.repository.increment_usage(app_path)
