@@ -127,7 +127,7 @@ class AddAppDialog(QDialog):
         if is_url:
             self.path_label.setText("URL адрес")
             self.browse_btn.setVisible(False)
-            self.path_input.setPlaceholderText("https://example.com")
+            self.path_input.setPlaceholderText("https://example.com или steam://rungameid/550")
         elif is_folder:
             self.path_label.setText("Путь к папке")
             self.browse_btn.setVisible(True)

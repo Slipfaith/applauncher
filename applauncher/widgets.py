@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QMimeData
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPixmap
 
 from .styles import TOKENS, apply_shadow
 from .repository import DEFAULT_GROUP
@@ -51,14 +51,30 @@ class AppButton(QPushButton):
         icon_path = app_data.get("icon_path", "")
         has_custom_icon = bool(app_data.get("custom_icon"))
         if app_type == "url" and not (icon_path and os.path.exists(icon_path)):
-            display_label = f"🌐 {display_name}"
+            if app_data.get("path", "").lower().startswith("steam://"):
+                display_label = f"🎮 {display_name}"
+            else:
+                display_label = f"🌐 {display_name}"
         elif app_type == "folder" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"📁 {display_name}"
         self.setToolTip(display_name)
         self.setText("" if has_custom_icon else self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
-            self.setIcon(QIcon(icon_path))
+            if has_custom_icon:
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    scaled = pixmap.scaled(
+                        *TOKENS.sizes.grid_button,
+                        Qt.IgnoreAspectRatio,
+                        Qt.SmoothTransformation,
+                    )
+                    self.setIcon(QIcon(scaled))
+                else:
+                    self.setIcon(QIcon(icon_path))
+            else:
+                self.setIcon(QIcon(icon_path))
         if has_custom_icon:
+            self.setProperty("iconMode", "full")
             self.setIconSize(QSize(*TOKENS.sizes.grid_button))
         else:
             self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
@@ -217,7 +233,10 @@ class AppListItem(QWidget):
         prefix = "★ " if app_data.get("favorite") else ""
         app_type = app_data.get("type", "exe")
         if app_type == "url":
-            name_label = QLabel(f"🌐 {prefix}{app_data['name']}")
+            if app_data.get("path", "").lower().startswith("steam://"):
+                name_label = QLabel(f"🎮 {prefix}{app_data['name']}")
+            else:
+                name_label = QLabel(f"🌐 {prefix}{app_data['name']}")
         elif app_type == "folder":
             name_label = QLabel(f"📁 {prefix}{app_data['name']}")
         else:

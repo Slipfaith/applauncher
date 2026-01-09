@@ -24,11 +24,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QFileSystemWatcher, QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, QUrl
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
     QDropEvent,
+    QDesktopServices,
     QIcon,
     QPixmap,
     QKeySequence,
@@ -624,7 +625,7 @@ class AppLauncher(QMainWindow):
                 QMessageBox.warning(
                     self,
                     "Ошибка",
-                    "Введите корректный URL (пример: https://example.com)",
+                    "Введите корректный URL (пример: https://example.com или steam://rungameid/550)",
                 )
                 return None
             data["path"] = normalized
@@ -659,6 +660,10 @@ class AppLauncher(QMainWindow):
         if not parsed.scheme:
             url = f"https://{url}"
             parsed = urlparse(url)
+        if parsed.scheme == "steam":
+            if parsed.netloc or parsed.path:
+                return url
+            return ""
         if not parsed.netloc:
             return ""
         return url
@@ -669,11 +674,14 @@ class AppLauncher(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Некорректный URL")
             return False
         try:
+            if QDesktopServices.openUrl(QUrl(normalized)):
+                logger.info("Открыт адрес %s", normalized)
+                return True
             opened = bool(webbrowser.open(normalized))
             if not opened:
                 QMessageBox.warning(self, "Ошибка", "Не удалось открыть ссылку")
                 return False
-            logger.info("Открыт сайт %s", normalized)
+            logger.info("Открыт адрес %s", normalized)
             return True
         except Exception as err:  # pragma: no cover - system/browser dependent
             QMessageBox.warning(self, "Ошибка", f"Не удалось открыть ссылку:\n{err}")
