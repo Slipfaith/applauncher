@@ -332,6 +332,27 @@ class AppLauncher(QMainWindow):
                 logger.info("Добавлена папка из перетаскивания: %s", file_path)
                 continue
 
+            if suffix == ".url" and os.path.exists(file_path):
+                target_url = self._read_url_shortcut(file_path)
+                normalized = self._normalize_url(target_url)
+                if normalized:
+                    name = Path(file_path).stem
+                    app_data = {
+                        "name": name,
+                        "path": normalized,
+                        "icon_path": "",
+                        "type": "url",
+                        "group": self.current_group,
+                        "usage_count": 0,
+                        "source": "manual",
+                    }
+                    self.repository.add_app(app_data)
+                    added = True
+                    logger.info("Добавлена ссылка из ярлыка: %s -> %s", file_path, normalized)
+                else:
+                    logger.warning("Не удалось прочитать ссылку из ярлыка: %s", file_path)
+                continue
+
             if suffix in {".exe", ".lnk", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
                 name = Path(file_path).stem
                 app_data = {
@@ -667,6 +688,20 @@ class AppLauncher(QMainWindow):
         if not parsed.netloc:
             return ""
         return url
+
+    def _read_url_shortcut(self, file_path: str) -> str:
+        for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "cp1251", "latin-1"):
+            try:
+                with open(file_path, "r", encoding=encoding) as handle:
+                    for raw_line in handle:
+                        line = raw_line.strip()
+                        if line.lower().startswith("url="):
+                            return line[4:].strip()
+            except UnicodeError:
+                continue
+            except OSError:
+                break
+        return ""
 
     def _launch_url(self, app_data: dict) -> bool:
         normalized = self._normalize_url(app_data.get("path", ""))
