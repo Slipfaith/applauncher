@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QMimeData
+from PySide6.QtCore import Qt, QSize, Signal, QMimeData, QRect
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPainter, QPixmap
 
 from .styles import TOKENS, apply_shadow
@@ -19,73 +19,82 @@ from .repository import DEFAULT_GROUP
 
 logger = logging.getLogger(__name__)
 
-ICON_FOCUS_PRESETS = {
-    "center": (0.5, 0.5),
-    "top": (0.5, 0.0),
-    "bottom": (0.5, 1.0),
-    "left": (0.0, 0.5),
-    "right": (1.0, 0.5),
-    "top_left": (0.0, 0.0),
-    "top_right": (1.0, 0.0),
-    "bottom_left": (0.0, 1.0),
-    "bottom_right": (1.0, 1.0),
-}
-
-
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
 
 
-def _clamp_range(value: float, minimum: float, maximum: float) -> float:
-    return max(minimum, min(maximum, value))
+def _resolve_icon_frame(app_data: dict) -> tuple[float, float, float, float] | None:
+    frame_x = app_data.get("icon_frame_x")
+    frame_y = app_data.get("icon_frame_y")
+    frame_w = app_data.get("icon_frame_w")
+    frame_h = app_data.get("icon_frame_h")
+    if not all(isinstance(value, (int, float)) for value in (frame_x, frame_y, frame_w, frame_h)):
+        return None
+    frame_w = float(frame_w)
+    frame_h = float(frame_h)
+    if frame_w <= 0 or frame_h <= 0:
+        return None
+    return (
+        _clamp(float(frame_x)),
+        _clamp(float(frame_y)),
+        _clamp(float(frame_w)),
+        _clamp(float(frame_h)),
+    )
 
 
-def _resolve_icon_focus(app_data: dict) -> tuple[float, float]:
-    focus_name = app_data.get("icon_focus", "center")
-    if focus_name in ICON_FOCUS_PRESETS:
-        return ICON_FOCUS_PRESETS[focus_name]
-    focus_x = app_data.get("icon_focus_x")
-    focus_y = app_data.get("icon_focus_y")
-    if isinstance(focus_x, (int, float)) and isinstance(focus_y, (int, float)):
-        return (_clamp(float(focus_x)), _clamp(float(focus_y)))
-    return ICON_FOCUS_PRESETS["center"]
+def default_icon_frame(pixmap: QPixmap, target_size: QSize) -> tuple[float, float, float, float]:
+    if pixmap.isNull() or target_size.isEmpty():
+        return (0.0, 0.0, 1.0, 1.0)
+    image_width = pixmap.width()
+    image_height = pixmap.height()
+    if image_width <= 0 or image_height <= 0:
+        return (0.0, 0.0, 1.0, 1.0)
+    target_aspect = target_size.width() / target_size.height()
+    image_aspect = image_width / image_height
+    if image_aspect >= target_aspect:
+        frame_height = image_height
+        frame_width = frame_height * target_aspect
+        frame_x = (image_width - frame_width) / 2
+        frame_y = 0
+    else:
+        frame_width = image_width
+        frame_height = frame_width / target_aspect
+        frame_x = 0
+        frame_y = (image_height - frame_height) / 2
+    return (
+        frame_x / image_width,
+        frame_y / image_height,
+        frame_width / image_width,
+        frame_height / image_height,
+    )
 
 
-def _resolve_icon_zoom(app_data: dict) -> float:
-    zoom = app_data.get("icon_zoom")
-    if isinstance(zoom, (int, float)):
-        return _clamp_range(float(zoom), 0.2, 4.0)
-    return 1.0
-
-
-def fit_pixmap_cropper(
+def render_framed_pixmap(
     pixmap: QPixmap,
     target_size: QSize,
-    focus: tuple[float, float],
-    zoom: float = 1.0,
+    frame: tuple[float, float, float, float] | None = None,
 ) -> QPixmap:
     if pixmap.isNull() or target_size.isEmpty():
         return pixmap
-    base_scale = min(
-        target_size.width() / pixmap.width(),
-        target_size.height() / pixmap.height(),
+    frame = frame or default_icon_frame(pixmap, target_size)
+    image_width = pixmap.width()
+    image_height = pixmap.height()
+    frame_x = int(round(_clamp(frame[0]) * image_width))
+    frame_y = int(round(_clamp(frame[1]) * image_height))
+    frame_w = int(round(_clamp(frame[2]) * image_width))
+    frame_h = int(round(_clamp(frame[3]) * image_height))
+    if frame_w <= 0 or frame_h <= 0:
+        frame_x, frame_y, frame_w, frame_h = 0, 0, image_width, image_height
+    frame_rect = QRect(frame_x, frame_y, frame_w, frame_h).intersected(
+        QRect(0, 0, image_width, image_height)
     )
-    zoom = _clamp_range(float(zoom), 0.2, 4.0)
-    scaled_size = QSize(
-        max(1, int(round(pixmap.width() * base_scale * zoom))),
-        max(1, int(round(pixmap.height() * base_scale * zoom))),
-    )
-    scaled = pixmap.scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    focus_x, focus_y = focus
-    target_focus_x = target_size.width() * _clamp(focus_x)
-    target_focus_y = target_size.height() * _clamp(focus_y)
-    scaled_focus_x = scaled.width() * _clamp(focus_x)
-    scaled_focus_y = scaled.height() * _clamp(focus_y)
-    offset_x = int(round(target_focus_x - scaled_focus_x))
-    offset_y = int(round(target_focus_y - scaled_focus_y))
+    cropped = pixmap.copy(frame_rect)
+    scaled = cropped.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     target_pixmap = QPixmap(target_size)
     target_pixmap.fill(Qt.transparent)
     painter = QPainter(target_pixmap)
+    offset_x = int(round((target_size.width() - scaled.width()) / 2))
+    offset_y = int(round((target_size.height() - scaled.height()) / 2))
     painter.drawPixmap(offset_x, offset_y, scaled)
     painter.end()
     return target_pixmap
@@ -134,9 +143,8 @@ class AppButton(QPushButton):
             if has_custom_icon:
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    focus = _resolve_icon_focus(app_data)
-                    zoom = _resolve_icon_zoom(app_data)
-                    fitted = fit_pixmap_cropper(pixmap, QSize(*TOKENS.sizes.grid_button), focus, zoom)
+                    frame = _resolve_icon_frame(app_data)
+                    fitted = render_framed_pixmap(pixmap, QSize(*TOKENS.sizes.grid_button), frame)
                     self.setIcon(QIcon(fitted))
                 else:
                     self.setIcon(QIcon(icon_path))
@@ -298,9 +306,8 @@ class AppListItem(QWidget):
             if app_data.get("custom_icon"):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    focus = _resolve_icon_focus(app_data)
-                    zoom = _resolve_icon_zoom(app_data)
-                    icon_label.setPixmap(fit_pixmap_cropper(pixmap, QSize(32, 32), focus, zoom))
+                    frame = _resolve_icon_frame(app_data)
+                    icon_label.setPixmap(render_framed_pixmap(pixmap, QSize(32, 32), frame))
                 else:
                     icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
             else:

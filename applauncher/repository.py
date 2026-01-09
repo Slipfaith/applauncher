@@ -109,10 +109,10 @@ class AppRepository:
                         "args",
                         "custom_icon",
                         "source",
-                        "icon_focus",
-                        "icon_focus_x",
-                        "icon_focus_y",
-                        "icon_zoom",
+                        "icon_frame_x",
+                        "icon_frame_y",
+                        "icon_frame_w",
+                        "icon_frame_h",
                     }
                 }
             )
@@ -124,6 +124,8 @@ class AppRepository:
         prepared.setdefault("args", [])
         prepared.setdefault("custom_icon", False)
         prepared.setdefault("source", "manual")
-        prepared.setdefault("icon_focus", "center")
-        prepared.setdefault("icon_zoom", 1.0)
+        prepared.setdefault("icon_frame_x", 0.0)
+        prepared.setdefault("icon_frame_y", 0.0)
+        prepared.setdefault("icon_frame_w", 1.0)
+        prepared.setdefault("icon_frame_h", 1.0)
         return prepared
