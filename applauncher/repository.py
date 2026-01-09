@@ -46,6 +46,11 @@ class AppRepository:
             return True
         return False
 
+    def clear_apps(self) -> None:
+        if self.apps:
+            self.apps = []
+            self._version += 1
+
     def get_filtered_apps(self, query: str, group: str) -> list[dict]:
         text = query.lower()
         if group == DEFAULT_GROUP:

@@ -209,7 +209,23 @@ class AppLauncher(QMainWindow):
         add_btn.clicked.connect(self.add_app)
         apply_shadow(add_btn, TOKENS.shadows.raised)
 
-        content_layout.addWidget(add_btn)
+        clear_btn = QPushButton("Удалить все")
+        clear_btn.setProperty("variant", "danger")
+        clear_btn.clicked.connect(self.clear_all_apps)
+
+        actions_layout = QHBoxLayout()
+        actions_layout.setContentsMargins(
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+        )
+        actions_layout.setSpacing(TOKENS.layout.content_spacing)
+        actions_layout.addWidget(add_btn)
+        actions_layout.addWidget(clear_btn)
+        actions_layout.addStretch()
+
+        content_layout.addLayout(actions_layout)
 
         self.grid_widget = QWidget()
         self.grid_layout = FlowLayout(
@@ -245,7 +261,6 @@ class AppLauncher(QMainWindow):
         main_layout.addWidget(content_widget)
 
         self.load_state()
-        self._setup_shortcut_discovery()
         self.setup_shortcuts()
         self.refresh_view()
 
@@ -374,6 +389,26 @@ class AppLauncher(QMainWindow):
             logger.info("Удален элемент: %s", app_data["name"])
             self.schedule_save()
             self.refresh_view()
+
+    def clear_all_apps(self):
+        if not self.repository.apps:
+            QMessageBox.information(self, "Удалить все", "Список приложений уже пуст.")
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Удалить все",
+            "Удалить все приложения из лаунчера?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        for app in list(self.repository.apps):
+            self._cleanup_icon_cache(app.get("icon_path"))
+        self.repository.clear_apps()
+        self.schedule_save()
+        self.refresh_view()
+        logger.info("Удалены все приложения")
 
     def toggle_favorite(self, app_data: dict):
         target = next((item for item in self.repository.apps if item["path"] == app_data["path"]), None)
@@ -517,7 +552,8 @@ class AppLauncher(QMainWindow):
             logger.warning("Ошибка загрузки конфигурации: %s", err)
             data = DEFAULT_CONFIG.copy()
 
-        self.repository.set_apps(data.get("apps", []))
+        apps = [app for app in data.get("apps", []) if app.get("source") != "auto"]
+        self.repository.set_apps(apps)
         self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
         self.view_mode = data.get("view_mode", self.view_mode)
         for app in self.repository.apps:
