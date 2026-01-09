@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, QSize, Signal, QMimeData
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from .styles import TOKENS, apply_shadow
+from .repository import DEFAULT_GROUP
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,17 @@ class AppButton(QPushButton):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
 
-    def __init__(self, app_data: dict, parent=None, available_groups: list[str] | None = None):
+    def __init__(
+        self,
+        app_data: dict,
+        parent=None,
+        available_groups: list[str] | None = None,
+        current_group: str | None = None,
+    ):
         super().__init__(parent)
         self.app_data = app_data
         self.available_groups = available_groups or []
+        self.current_group = current_group or app_data.get("group")
         self._drag_start_pos = None
         self.setProperty("role", "appTile")
 
@@ -41,13 +49,17 @@ class AppButton(QPushButton):
         app_type = app_data.get("type", "exe")
         display_label = display_name
         icon_path = app_data.get("icon_path", "")
+        has_custom_icon = bool(app_data.get("custom_icon"))
         if app_type == "url" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"🌐 {display_name}"
         self.setToolTip(display_name)
-        self.setText(self._wrap_text(display_label))
+        self.setText("" if has_custom_icon else self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
             self.setIcon(QIcon(icon_path))
-        self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
+        if has_custom_icon:
+            self.setIconSize(QSize(*TOKENS.sizes.grid_button))
+        else:
+            self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
         # Fixed size for FlowLayout consistency
         self.setFixedSize(*TOKENS.sizes.grid_button)
         apply_shadow(self, TOKENS.shadows.raised)
@@ -58,6 +70,9 @@ class AppButton(QPushButton):
 
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)
+
+    def set_current_group(self, group: str | None) -> None:
+        self.current_group = group
 
     def _wrap_text(self, text: str, max_lines: int = 2) -> str:
         metrics = QFontMetrics(self.font())
@@ -99,23 +114,33 @@ class AppButton(QPushButton):
     def show_context_menu(self, pos):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
-        delete_action = menu.addAction("🗑️ Удалить")
         open_folder_action = menu.addAction("📂 Открыть расположение")
         favorite_action = menu.addAction(
             "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
         )
+        delete_action = None
+        trash_action = None
+        if self.current_group == DEFAULT_GROUP:
+            trash_action = menu.addAction("🗑️ В мусор")
+        else:
+            delete_action = menu.addAction("🗑️ Удалить")
         move_menu = menu.addMenu("📁 Переместить в")
         move_action_map = {}
         for group in self.available_groups:
+            if group == self.current_group:
+                continue
             action = move_menu.addAction(group)
-            if group == self.app_data.get("group"):
-                action.setEnabled(False)
             move_action_map[action] = group
+        if not move_action_map:
+            empty_action = move_menu.addAction("Нет других вкладок")
+            empty_action.setEnabled(False)
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
             self.editRequested.emit(self.app_data)
         elif action == delete_action:
+            self.deleteRequested.emit(self.app_data)
+        elif action == trash_action:
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
@@ -154,10 +179,17 @@ class AppListItem(QWidget):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
 
-    def __init__(self, app_data: dict, parent=None, available_groups: list[str] | None = None):
+    def __init__(
+        self,
+        app_data: dict,
+        parent=None,
+        available_groups: list[str] | None = None,
+        current_group: str | None = None,
+    ):
         super().__init__(parent)
         self.app_data = app_data
         self.available_groups = available_groups or []
+        self.current_group = current_group or app_data.get("group")
         self._drag_start_pos = None
         self._dragging = False
         self.setProperty("role", "listItem")
@@ -200,6 +232,9 @@ class AppListItem(QWidget):
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)
 
+    def set_current_group(self, group: str | None) -> None:
+        self.current_group = group
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_start_pos = event.position().toPoint()
@@ -229,23 +264,33 @@ class AppListItem(QWidget):
     def show_context_menu(self, pos):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
-        delete_action = menu.addAction("🗑️ Удалить")
         open_folder_action = menu.addAction("📂 Открыть расположение")
         favorite_action = menu.addAction(
             "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
         )
+        delete_action = None
+        trash_action = None
+        if self.current_group == DEFAULT_GROUP:
+            trash_action = menu.addAction("🗑️ В мусор")
+        else:
+            delete_action = menu.addAction("🗑️ Удалить")
         move_menu = menu.addMenu("📁 Переместить в")
         move_action_map = {}
         for group in self.available_groups:
+            if group == self.current_group:
+                continue
             action = move_menu.addAction(group)
-            if group == self.app_data.get("group"):
-                action.setEnabled(False)
             move_action_map[action] = group
+        if not move_action_map:
+            empty_action = move_menu.addAction("Нет других вкладок")
+            empty_action.setEnabled(False)
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
             self.editRequested.emit(self.app_data)
         elif action == delete_action:
+            self.deleteRequested.emit(self.app_data)
+        elif action == trash_action:
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)

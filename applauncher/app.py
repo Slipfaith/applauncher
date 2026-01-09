@@ -318,6 +318,7 @@ class AppLauncher(QMainWindow):
             data = self._validate_app_data(dialog.get_data())
             if not data:
                 return
+            data["custom_icon"] = bool(data.get("icon_path"))
             if data.get("group") not in self.groups:
                 self.groups.append(data.get("group", DEFAULT_GROUP))
                 self.setup_tabs()
@@ -336,7 +337,12 @@ class AppLauncher(QMainWindow):
                     if not updated:
                         return
                     previous_icon = app.get("icon_path")
+                    previous_custom_icon = app.get("custom_icon", False)
                     updated["usage_count"] = app.get("usage_count", 0)
+                    if updated.get("icon_path") != previous_icon:
+                        updated["custom_icon"] = bool(updated.get("icon_path"))
+                    else:
+                        updated["custom_icon"] = previous_custom_icon
                     if updated.get("group") not in self.groups:
                         self.groups.append(updated.get("group", DEFAULT_GROUP))
                         self.setup_tabs()
@@ -351,6 +357,9 @@ class AppLauncher(QMainWindow):
                 break
 
     def delete_app(self, app_data: dict):
+        if self.current_group != DEFAULT_GROUP:
+            self.remove_app_from_group(app_data, self.current_group)
+            return
         if self.repository.delete_app(app_data["path"]):
             self._cleanup_icon_cache(app_data.get("icon_path"))
             logger.info("Удален элемент: %s", app_data["name"])
@@ -375,6 +384,20 @@ class AppLauncher(QMainWindow):
             return
         updated = dict(target)
         updated["group"] = group
+        self.repository.update_app(target["path"], updated)
+        self.schedule_save()
+        self.refresh_view()
+
+    def remove_app_from_group(self, app_data: dict, group: str):
+        if group == DEFAULT_GROUP:
+            return
+        target = next((item for item in self.repository.apps if item["path"] == app_data["path"]), None)
+        if not target:
+            return
+        if target.get("group", DEFAULT_GROUP) != group:
+            return
+        updated = dict(target)
+        updated["group"] = DEFAULT_GROUP
         self.repository.update_app(target["path"], updated)
         self.schedule_save()
         self.refresh_view()
@@ -431,8 +454,14 @@ class AppLauncher(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
+        current_group = self.current_group
         for app in apps:
-            btn = AppButton(app, self.grid_widget, available_groups=self.groups)
+            btn = AppButton(
+                app,
+                self.grid_widget,
+                available_groups=self.groups,
+                current_group=current_group,
+            )
             btn.activated.connect(self.launch_app)
             btn.editRequested.connect(self.edit_app)
             btn.deleteRequested.connect(self.delete_app)
@@ -447,8 +476,14 @@ class AppLauncher(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
+        current_group = self.current_group
         for app in apps:
-            item = AppListItem(app, self.list_container, available_groups=self.groups)
+            item = AppListItem(
+                app,
+                self.list_container,
+                available_groups=self.groups,
+                current_group=current_group,
+            )
             item.activated.connect(self.launch_app)
             item.editRequested.connect(self.edit_app)
             item.deleteRequested.connect(self.delete_app)
