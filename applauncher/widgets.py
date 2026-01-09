@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QMimeData
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPixmap
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPainter, QPixmap
 
 from .styles import TOKENS, apply_shadow
 from .repository import DEFAULT_GROUP
@@ -36,6 +36,10 @@ def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
 
 
+def _clamp_range(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
 def _resolve_icon_focus(app_data: dict) -> tuple[float, float]:
     focus_name = app_data.get("icon_focus", "center")
     if focus_name in ICON_FOCUS_PRESETS:
@@ -47,16 +51,44 @@ def _resolve_icon_focus(app_data: dict) -> tuple[float, float]:
     return ICON_FOCUS_PRESETS["center"]
 
 
-def fit_pixmap_cover(pixmap: QPixmap, target_size: QSize, focus: tuple[float, float]) -> QPixmap:
+def _resolve_icon_zoom(app_data: dict) -> float:
+    zoom = app_data.get("icon_zoom")
+    if isinstance(zoom, (int, float)):
+        return _clamp_range(float(zoom), 0.2, 4.0)
+    return 1.0
+
+
+def fit_pixmap_cover(
+    pixmap: QPixmap,
+    target_size: QSize,
+    focus: tuple[float, float],
+    zoom: float = 1.0,
+) -> QPixmap:
     if pixmap.isNull() or target_size.isEmpty():
         return pixmap
-    scaled = pixmap.scaled(target_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+    base_scale = max(
+        target_size.width() / pixmap.width(),
+        target_size.height() / pixmap.height(),
+    )
+    zoom = _clamp_range(float(zoom), 0.2, 4.0)
+    scaled_size = QSize(
+        max(1, int(round(pixmap.width() * base_scale * zoom))),
+        max(1, int(round(pixmap.height() * base_scale * zoom))),
+    )
+    scaled = pixmap.scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     focus_x, focus_y = focus
-    extra_width = max(0, scaled.width() - target_size.width())
-    extra_height = max(0, scaled.height() - target_size.height())
-    offset_x = int(round(extra_width * _clamp(focus_x)))
-    offset_y = int(round(extra_height * _clamp(focus_y)))
-    return scaled.copy(offset_x, offset_y, target_size.width(), target_size.height())
+    target_focus_x = target_size.width() * _clamp(focus_x)
+    target_focus_y = target_size.height() * _clamp(focus_y)
+    scaled_focus_x = scaled.width() * _clamp(focus_x)
+    scaled_focus_y = scaled.height() * _clamp(focus_y)
+    offset_x = int(round(target_focus_x - scaled_focus_x))
+    offset_y = int(round(target_focus_y - scaled_focus_y))
+    target_pixmap = QPixmap(target_size)
+    target_pixmap.fill(Qt.transparent)
+    painter = QPainter(target_pixmap)
+    painter.drawPixmap(offset_x, offset_y, scaled)
+    painter.end()
+    return target_pixmap
 
 
 class AppButton(QPushButton):
@@ -103,7 +135,8 @@ class AppButton(QPushButton):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
                     focus = _resolve_icon_focus(app_data)
-                    fitted = fit_pixmap_cover(pixmap, QSize(*TOKENS.sizes.grid_button), focus)
+                    zoom = _resolve_icon_zoom(app_data)
+                    fitted = fit_pixmap_cover(pixmap, QSize(*TOKENS.sizes.grid_button), focus, zoom)
                     self.setIcon(QIcon(fitted))
                 else:
                     self.setIcon(QIcon(icon_path))
@@ -266,7 +299,8 @@ class AppListItem(QWidget):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
                     focus = _resolve_icon_focus(app_data)
-                    icon_label.setPixmap(fit_pixmap_cover(pixmap, QSize(32, 32), focus))
+                    zoom = _resolve_icon_zoom(app_data)
+                    icon_label.setPixmap(fit_pixmap_cover(pixmap, QSize(32, 32), focus, zoom))
                 else:
                     icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
             else:

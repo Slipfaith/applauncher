@@ -112,6 +112,7 @@ class AppRepository:
                         "icon_focus",
                         "icon_focus_x",
                         "icon_focus_y",
+                        "icon_zoom",
                     }
                 }
             )
@@ -124,4 +125,5 @@ class AppRepository:
         prepared.setdefault("custom_icon", False)
         prepared.setdefault("source", "manual")
         prepared.setdefault("icon_focus", "center")
+        prepared.setdefault("icon_zoom", 1.0)
         return prepared
