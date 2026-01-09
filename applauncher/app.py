@@ -40,7 +40,7 @@ from .repository import DEFAULT_GROUP
 from .services.icon_service import IconService
 from .services.launch_service import LaunchService
 from .services.launcher_service import LauncherService
-from .services.validation import normalize_url, read_url_shortcut, validate_app_data
+from .services.validation import extract_shortcut_data, normalize_url, validate_app_data
 from .widgets import AppButton, AppListItem, TitleBar
 
 logger = logging.getLogger(__name__)
@@ -301,34 +301,39 @@ class AppLauncher(QMainWindow):
                 logger.info("Добавлена папка из перетаскивания: %s", file_path)
                 continue
 
-            if suffix == ".url" and os.path.exists(file_path):
-                target_url = read_url_shortcut(file_path)
-                normalized = normalize_url(target_url)
-                if normalized:
+            if suffix in {".url", ".lnk"} and os.path.exists(file_path):
+                shortcut_data = extract_shortcut_data(file_path)
+                if shortcut_data:
                     name = Path(file_path).stem
                     app_data = {
                         "name": name,
-                        "path": normalized,
-                        "icon_path": "",
-                        "type": "url",
+                        "path": shortcut_data["path"],
+                        "icon_path": shortcut_data.get("icon_path", ""),
+                        "type": shortcut_data.get("type", "exe"),
+                        "args": shortcut_data.get("args", []),
                         "group": self.current_group,
                         "usage_count": 0,
                         "source": "manual",
                     }
-                    self.service.add_app(app_data)
+                    created = self.service.add_app(app_data)
+                    self.icon_service.start_extraction(created)
                     added = True
-                    logger.info("Добавлена ссылка из ярлыка: %s -> %s", file_path, normalized)
+                    logger.info(
+                        "Добавлен ярлык из перетаскивания: %s -> %s",
+                        file_path,
+                        shortcut_data["path"],
+                    )
                 else:
-                    logger.warning("Не удалось прочитать ссылку из ярлыка: %s", file_path)
+                    logger.warning("Не удалось прочитать ярлык: %s", file_path)
                 continue
 
-            if suffix in {".exe", ".lnk", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
+            if suffix in {".exe", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
                 name = Path(file_path).stem
                 app_data = {
                     "name": name,
                     "path": file_path,
                     "icon_path": "",
-                    "type": "lnk" if suffix == ".lnk" else "exe",
+                    "type": "exe",
                     "group": self.current_group,
                     "usage_count": 0,
                     "source": "manual",
