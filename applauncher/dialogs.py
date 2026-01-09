@@ -12,13 +12,122 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 
 from .styles import TOKENS
 from .widgets import ICON_FOCUS_PRESETS, fit_pixmap_cover
 
 logger = logging.getLogger(__name__)
+
+
+def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _clamp_range(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+class IconCropPreview(QLabel):
+    focusChanged = Signal(float, float)
+    zoomChanged = Signal(float)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = QPixmap()
+        self._focus = (0.5, 0.5)
+        self._zoom = 1.0
+        self._drag_pos = None
+        self.setCursor(Qt.OpenHandCursor)
+        self.setAlignment(Qt.AlignCenter)
+
+    def set_source_pixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        self._render()
+
+    def clear_source(self) -> None:
+        self._pixmap = QPixmap()
+        self.clear()
+
+    def set_focus(self, focus_x: float, focus_y: float) -> None:
+        self._focus = (_clamp(focus_x), _clamp(focus_y))
+        self._render()
+        self.focusChanged.emit(*self._focus)
+
+    def focus(self) -> tuple[float, float]:
+        return self._focus
+
+    def set_zoom(self, zoom: float) -> None:
+        self._zoom = _clamp_range(float(zoom), 0.2, 4.0)
+        self._render()
+        self.zoomChanged.emit(self._zoom)
+
+    def zoom(self) -> float:
+        return self._zoom
+
+    def reset_view(self) -> None:
+        self._focus = (0.5, 0.5)
+        self._zoom = 1.0
+        self._render()
+        self.focusChanged.emit(*self._focus)
+        self.zoomChanged.emit(self._zoom)
+
+    def _render(self) -> None:
+        if self._pixmap.isNull():
+            self.clear()
+            return
+        target_size = self.size()
+        fitted = fit_pixmap_cover(self._pixmap, target_size, self._focus, self._zoom)
+        self.setPixmap(fitted)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._render()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag_pos is None or self._pixmap.isNull():
+            super().mouseMoveEvent(event)
+            return
+        delta = event.position() - self._drag_pos
+        target_size = self.size()
+        if target_size.isEmpty():
+            return
+        base_scale = max(
+            target_size.width() / self._pixmap.width(),
+            target_size.height() / self._pixmap.height(),
+        )
+        scaled_width = self._pixmap.width() * base_scale * self._zoom
+        scaled_height = self._pixmap.height() * base_scale * self._zoom
+        focus_x, focus_y = self._focus
+        if scaled_width > 0:
+            focus_x = _clamp(focus_x - (delta.x() / scaled_width))
+        if scaled_height > 0:
+            focus_y = _clamp(focus_y - (delta.y() / scaled_height))
+        self._drag_pos = event.position()
+        self.set_focus(focus_x, focus_y)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = None
+            self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        if self._pixmap.isNull():
+            return
+        steps = event.angleDelta().y() / 120.0
+        if steps == 0:
+            return
+        zoom = self._zoom * (1.1 ** steps)
+        self.set_zoom(zoom)
+        event.accept()
 
 
 class AddAppDialog(QDialog):
@@ -90,35 +199,13 @@ class AddAppDialog(QDialog):
         icon_layout.addWidget(icon_btn)
         layout.addLayout(icon_layout)
 
-        self.icon_preview = QLabel()
+        self.icon_preview = IconCropPreview()
         self.icon_preview.setObjectName("iconPreview")
         self.icon_preview.setFixedSize(*TOKENS.sizes.grid_button)
-        self.icon_preview.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.icon_preview)
 
-        focus_label = QLabel("Область отображения")
-        layout.addWidget(focus_label)
-        self.focus_combo = QComboBox()
-        focus_options = [
-            ("Центр", "center"),
-            ("Верх", "top"),
-            ("Низ", "bottom"),
-            ("Слева", "left"),
-            ("Справа", "right"),
-            ("Верх слева", "top_left"),
-            ("Верх справа", "top_right"),
-            ("Низ слева", "bottom_left"),
-            ("Низ справа", "bottom_right"),
-        ]
-        for label, value in focus_options:
-            self.focus_combo.addItem(label, value)
-        if app_data:
-            focus_value = app_data.get("icon_focus", "center")
-            for idx in range(self.focus_combo.count()):
-                if self.focus_combo.itemData(idx) == focus_value:
-                    self.focus_combo.setCurrentIndex(idx)
-                    break
-        layout.addWidget(self.focus_combo)
+        focus_help = QLabel("Перетаскивайте изображение мышью и используйте колесо для масштаба.")
+        layout.addWidget(focus_help)
 
         group_label = QLabel("Группа")
         layout.addWidget(group_label)
@@ -152,9 +239,23 @@ class AddAppDialog(QDialog):
 
         self.setLayout(layout)
         self.on_type_changed()
+        self._last_icon_path = self.icon_input.text().strip()
+        if app_data:
+            focus = self._resolve_initial_focus(app_data)
+            self.icon_preview.set_focus(*focus)
+            zoom_value = app_data.get("icon_zoom", 1.0)
+            if isinstance(zoom_value, (int, float)):
+                self.icon_preview.set_zoom(zoom_value)
         self.icon_input.textChanged.connect(self.update_icon_preview)
-        self.focus_combo.currentIndexChanged.connect(self.update_icon_preview)
         self.update_icon_preview()
+
+    def _resolve_initial_focus(self, app_data: dict) -> tuple[float, float]:
+        focus_x = app_data.get("icon_focus_x")
+        focus_y = app_data.get("icon_focus_y")
+        if isinstance(focus_x, (int, float)) and isinstance(focus_y, (int, float)):
+            return (_clamp(float(focus_x)), _clamp(float(focus_y)))
+        focus_value = app_data.get("icon_focus", "center")
+        return ICON_FOCUS_PRESETS.get(focus_value, ICON_FOCUS_PRESETS["center"])
 
     def on_type_changed(self):
         current_index = self.type_combo.currentIndex()
@@ -200,16 +301,17 @@ class AddAppDialog(QDialog):
     def update_icon_preview(self) -> None:
         icon_path = self.icon_input.text().strip()
         if not icon_path or not Path(icon_path).exists():
-            self.icon_preview.clear()
+            self.icon_preview.clear_source()
+            self._last_icon_path = ""
             return
         pixmap = QPixmap(icon_path)
         if pixmap.isNull():
-            self.icon_preview.clear()
+            self.icon_preview.clear_source()
             return
-        focus_key = self.focus_combo.currentData()
-        focus = ICON_FOCUS_PRESETS.get(focus_key, ICON_FOCUS_PRESETS["center"])
-        fitted = fit_pixmap_cover(pixmap, QSize(*TOKENS.sizes.grid_button), focus)
-        self.icon_preview.setPixmap(fitted)
+        if icon_path != self._last_icon_path:
+            self.icon_preview.reset_view()
+            self._last_icon_path = icon_path
+        self.icon_preview.set_source_pixmap(pixmap)
 
     def get_data(self) -> dict:
         current_type = "exe"
@@ -217,11 +319,15 @@ class AddAppDialog(QDialog):
             current_type = "url"
         elif self.type_combo.currentIndex() == 2:
             current_type = "folder"
+        focus_x, focus_y = self.icon_preview.focus()
         return {
             "name": self.name_input.text(),
             "path": self.path_input.text(),
             "icon_path": self.icon_input.text(),
-            "icon_focus": self.focus_combo.currentData(),
+            "icon_focus": "manual",
+            "icon_focus_x": focus_x,
+            "icon_focus_y": focus_y,
+            "icon_zoom": self.icon_preview.zoom(),
             "type": current_type,
             "group": self.group_input.currentText() or "Общее",
         }
