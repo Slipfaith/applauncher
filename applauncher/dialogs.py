@@ -12,8 +12,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QPixmap
 
 from .styles import TOKENS
+from .widgets import ICON_FOCUS_PRESETS, fit_pixmap_cover
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,12 @@ class AddAppDialog(QDialog):
         icon_layout.addWidget(icon_btn)
         layout.addLayout(icon_layout)
 
+        self.icon_preview = QLabel()
+        self.icon_preview.setObjectName("iconPreview")
+        self.icon_preview.setFixedSize(*TOKENS.sizes.grid_button)
+        self.icon_preview.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.icon_preview)
+
         focus_label = QLabel("Область отображения")
         layout.addWidget(focus_label)
         self.focus_combo = QComboBox()
@@ -143,6 +152,9 @@ class AddAppDialog(QDialog):
 
         self.setLayout(layout)
         self.on_type_changed()
+        self.icon_input.textChanged.connect(self.update_icon_preview)
+        self.focus_combo.currentIndexChanged.connect(self.update_icon_preview)
+        self.update_icon_preview()
 
     def on_type_changed(self):
         current_index = self.type_combo.currentIndex()
@@ -184,6 +196,20 @@ class AddAppDialog(QDialog):
         file_path, _ = QFileDialog.getOpenFileName(self, "Выберите иконку", "", "Images (*.png *.jpg *.ico)")
         if file_path:
             self.icon_input.setText(file_path)
+
+    def update_icon_preview(self) -> None:
+        icon_path = self.icon_input.text().strip()
+        if not icon_path or not Path(icon_path).exists():
+            self.icon_preview.clear()
+            return
+        pixmap = QPixmap(icon_path)
+        if pixmap.isNull():
+            self.icon_preview.clear()
+            return
+        focus_key = self.focus_combo.currentData()
+        focus = ICON_FOCUS_PRESETS.get(focus_key, ICON_FOCUS_PRESETS["center"])
+        fitted = fit_pixmap_cover(pixmap, QSize(*TOKENS.sizes.grid_button), focus)
+        self.icon_preview.setPixmap(fitted)
 
     def get_data(self) -> dict:
         current_type = "exe"
