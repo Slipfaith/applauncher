@@ -2,9 +2,17 @@
 import os
 import logging
 
-from PySide6.QtWidgets import QLabel, QPushButton, QWidget, QMenu, QSystemTrayIcon, QVBoxLayout
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QPushButton,
+    QWidget,
+    QMenu,
+    QSystemTrayIcon,
+    QVBoxLayout,
+)
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QFontMetrics, QIcon
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QMimeData
 
 from .styles import TOKENS, apply_shadow
 
@@ -19,10 +27,13 @@ class AppButton(QPushButton):
     deleteRequested = Signal(object)
     openLocationRequested = Signal(object)
     favoriteToggled = Signal(object)
+    moveRequested = Signal(object, str)
 
-    def __init__(self, app_data: dict, parent=None):
+    def __init__(self, app_data: dict, parent=None, available_groups: list[str] | None = None):
         super().__init__(parent)
         self.app_data = app_data
+        self.available_groups = available_groups or []
+        self._drag_start_pos = None
         self.setProperty("role", "appTile")
 
         prefix = "★ " if app_data.get("favorite") else ""
@@ -44,6 +55,9 @@ class AppButton(QPushButton):
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def set_available_groups(self, groups: list[str]) -> None:
+        self.available_groups = list(groups)
 
     def _wrap_text(self, text: str, max_lines: int = 2) -> str:
         metrics = QFontMetrics(self.font())
@@ -90,6 +104,13 @@ class AppButton(QPushButton):
         favorite_action = menu.addAction(
             "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
         )
+        move_menu = menu.addMenu("📁 Переместить в")
+        move_action_map = {}
+        for group in self.available_groups:
+            action = move_menu.addAction(group)
+            if group == self.app_data.get("group"):
+                action.setEnabled(False)
+            move_action_map[action] = group
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
@@ -100,6 +121,27 @@ class AppButton(QPushButton):
             self.openLocationRequested.emit(self.app_data)
         elif action == favorite_action:
             self.favoriteToggled.emit(self.app_data)
+        elif action in move_action_map:
+            self.moveRequested.emit(self.app_data, move_action_map[action])
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.LeftButton) or self._drag_start_pos is None:
+            super().mouseMoveEvent(event)
+            return
+        if (event.position().toPoint() - self._drag_start_pos).manhattanLength() < QApplication.startDragDistance():
+            super().mouseMoveEvent(event)
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData("application/x-applauncher-app", self.app_data["path"].encode("utf-8"))
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.exec(Qt.MoveAction)
 
 
 class AppListItem(QWidget):
@@ -110,10 +152,14 @@ class AppListItem(QWidget):
     deleteRequested = Signal(object)
     openLocationRequested = Signal(object)
     favoriteToggled = Signal(object)
+    moveRequested = Signal(object, str)
 
-    def __init__(self, app_data: dict, parent=None):
+    def __init__(self, app_data: dict, parent=None, available_groups: list[str] | None = None):
         super().__init__(parent)
         self.app_data = app_data
+        self.available_groups = available_groups or []
+        self._drag_start_pos = None
+        self._dragging = False
         self.setProperty("role", "listItem")
 
         from PySide6.QtWidgets import QHBoxLayout
@@ -151,10 +197,34 @@ class AppListItem(QWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
+    def set_available_groups(self, groups: list[str]) -> None:
+        self.available_groups = list(groups)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.activated.emit(self.app_data)
+            self._drag_start_pos = event.position().toPoint()
+            self._dragging = False
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.LeftButton) or self._drag_start_pos is None:
+            super().mouseMoveEvent(event)
+            return
+        if (event.position().toPoint() - self._drag_start_pos).manhattanLength() < QApplication.startDragDistance():
+            super().mouseMoveEvent(event)
+            return
+        self._dragging = True
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData("application/x-applauncher-app", self.app_data["path"].encode("utf-8"))
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.exec(Qt.MoveAction)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and not self._dragging:
+            self.activated.emit(self.app_data)
+        super().mouseReleaseEvent(event)
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -164,6 +234,13 @@ class AppListItem(QWidget):
         favorite_action = menu.addAction(
             "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
         )
+        move_menu = menu.addMenu("📁 Переместить в")
+        move_action_map = {}
+        for group in self.available_groups:
+            action = move_menu.addAction(group)
+            if group == self.app_data.get("group"):
+                action.setEnabled(False)
+            move_action_map[action] = group
 
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
@@ -174,6 +251,8 @@ class AppListItem(QWidget):
             self.openLocationRequested.emit(self.app_data)
         elif action == favorite_action:
             self.favoriteToggled.emit(self.app_data)
+        elif action in move_action_map:
+            self.moveRequested.emit(self.app_data, move_action_map[action])
 
 
 class TitleBar(QWidget):

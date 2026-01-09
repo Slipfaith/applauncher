@@ -48,12 +48,19 @@ class AppRepository:
 
     def get_filtered_apps(self, query: str, group: str) -> list[dict]:
         text = query.lower()
-        filtered = [
-            app
-            for app in self.apps
-            if (app.get("group", DEFAULT_GROUP) == group)
-            and (text in app["name"].lower() or text in app["path"].lower())
-        ]
+        if group == DEFAULT_GROUP:
+            filtered = [
+                app
+                for app in self.apps
+                if text in app["name"].lower() or text in app["path"].lower()
+            ]
+        else:
+            filtered = [
+                app
+                for app in self.apps
+                if (app.get("group", DEFAULT_GROUP) == group)
+                and (text in app["name"].lower() or text in app["path"].lower())
+            ]
         return sorted(
             filtered,
             key=lambda a: (

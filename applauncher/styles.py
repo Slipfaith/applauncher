@@ -212,6 +212,7 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         padding: {spacing.xs}px {spacing.lg}px;
         margin-right: {spacing.xs}px;
         min-width: {tokens.sizes.tab_min_width}px;
+        max-width: {tokens.sizes.tab_min_width}px;
         font-weight: {typography.weight_semibold};
     }}
 
@@ -231,6 +232,7 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         color: {colors.surface};
         border-color: {colors.accent};
         min-width: 32px;
+        max-width: 32px;
         padding: {spacing.xs}px {spacing.sm}px;
     }}
 

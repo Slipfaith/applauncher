@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
     QSystemTrayIcon,
+    QTabBar,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -59,6 +60,43 @@ class IconExtractionWorker(QRunnable):
     def run(self):  # pragma: no cover - visual side effects
         icon_path = extract_icon_with_fallback(self.path)
         self.signals.finished.emit(self.path, icon_path or "")
+
+
+class GroupTabBar(QTabBar):
+    appDropRequested = Signal(str, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setElideMode(Qt.ElideRight)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("application/x-applauncher-app"):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat("application/x-applauncher-app"):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat("application/x-applauncher-app"):
+            super().dropEvent(event)
+            return
+        index = self.tabAt(event.position().toPoint())
+        if index < 0:
+            return
+        group = self.tabText(index)
+        if group == "+":
+            return
+        payload = bytes(event.mimeData().data("application/x-applauncher-app")).decode("utf-8")
+        if payload:
+            self.appDropRequested.emit(payload, group)
+            self.setCurrentIndex(index)
+            event.acceptProposedAction()
 
 
 class AppLauncher(QMainWindow):
@@ -127,10 +165,13 @@ class AppLauncher(QMainWindow):
         self.tabs.setTabsClosable(False)
         self.tabs.setDocumentMode(True)
         self.tabs.setObjectName("mainTabs")
+        self.tab_bar = GroupTabBar(self)
+        self.tab_bar.appDropRequested.connect(self.move_app_by_path)
+        self.tabs.setTabBar(self.tab_bar)
         self.tabs.tabBarClicked.connect(self.on_tab_clicked)
         self.tabs.currentChanged.connect(lambda _: self.refresh_view())
-        self.tabs.tabBar().setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tabs.tabBar().customContextMenuRequested.connect(self.show_tab_context_menu)
+        self.tab_bar.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tab_bar.customContextMenuRequested.connect(self.show_tab_context_menu)
         controls_layout.addWidget(self.tabs)
 
         search_layout = QHBoxLayout()
@@ -326,6 +367,24 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
         self.refresh_view()
 
+    def move_app_to_group(self, app_data: dict, group: str):
+        if group not in self.groups:
+            return
+        target = next((item for item in self.repository.apps if item["path"] == app_data["path"]), None)
+        if not target:
+            return
+        updated = dict(target)
+        updated["group"] = group
+        self.repository.update_app(target["path"], updated)
+        self.schedule_save()
+        self.refresh_view()
+
+    def move_app_by_path(self, app_path: str, group: str):
+        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        if not target:
+            return
+        self.move_app_to_group(target, group)
+
     def launch_app(self, app_data: dict):
         handler = self.launch_handlers.get(app_data.get("type", "exe"), self._launch_executable)
         success = handler(app_data)
@@ -373,12 +432,13 @@ class AppLauncher(QMainWindow):
                 item.widget().deleteLater()
 
         for app in apps:
-            btn = AppButton(app, self.grid_widget)
+            btn = AppButton(app, self.grid_widget, available_groups=self.groups)
             btn.activated.connect(self.launch_app)
             btn.editRequested.connect(self.edit_app)
             btn.deleteRequested.connect(self.delete_app)
             btn.openLocationRequested.connect(self.open_location)
             btn.favoriteToggled.connect(self.toggle_favorite)
+            btn.moveRequested.connect(self.move_app_to_group)
             self.grid_layout.addWidget(btn)
 
     def populate_list(self, apps: list[dict]):
@@ -388,12 +448,13 @@ class AppLauncher(QMainWindow):
                 item.widget().deleteLater()
 
         for app in apps:
-            item = AppListItem(app, self.list_container)
+            item = AppListItem(app, self.list_container, available_groups=self.groups)
             item.activated.connect(self.launch_app)
             item.editRequested.connect(self.edit_app)
             item.deleteRequested.connect(self.delete_app)
             item.openLocationRequested.connect(self.open_location)
             item.favoriteToggled.connect(self.toggle_favorite)
+            item.moveRequested.connect(self.move_app_to_group)
             self.list_layout.addWidget(item)
         self.list_layout.addStretch()
 
@@ -582,7 +643,7 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
 
     def show_tab_context_menu(self, pos):
-        tab_bar = self.tabs.tabBar()
+        tab_bar = self.tab_bar
         index = tab_bar.tabAt(pos)
         if index < 0 or tab_bar.tabText(index) == "+":
             return
