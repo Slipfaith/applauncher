@@ -11,8 +11,8 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QMimeData
+from PySide6.QtCore import Qt, QSize, Signal, QMimeData
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from .styles import TOKENS, apply_shadow
 
