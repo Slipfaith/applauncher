@@ -19,6 +19,45 @@ from .repository import DEFAULT_GROUP
 
 logger = logging.getLogger(__name__)
 
+ICON_FOCUS_PRESETS = {
+    "center": (0.5, 0.5),
+    "top": (0.5, 0.0),
+    "bottom": (0.5, 1.0),
+    "left": (0.0, 0.5),
+    "right": (1.0, 0.5),
+    "top_left": (0.0, 0.0),
+    "top_right": (1.0, 0.0),
+    "bottom_left": (0.0, 1.0),
+    "bottom_right": (1.0, 1.0),
+}
+
+
+def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _resolve_icon_focus(app_data: dict) -> tuple[float, float]:
+    focus_name = app_data.get("icon_focus", "center")
+    if focus_name in ICON_FOCUS_PRESETS:
+        return ICON_FOCUS_PRESETS[focus_name]
+    focus_x = app_data.get("icon_focus_x")
+    focus_y = app_data.get("icon_focus_y")
+    if isinstance(focus_x, (int, float)) and isinstance(focus_y, (int, float)):
+        return (_clamp(float(focus_x)), _clamp(float(focus_y)))
+    return ICON_FOCUS_PRESETS["center"]
+
+
+def fit_pixmap_cover(pixmap: QPixmap, target_size: QSize, focus: tuple[float, float]) -> QPixmap:
+    if pixmap.isNull() or target_size.isEmpty():
+        return pixmap
+    scaled = pixmap.scaled(target_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+    focus_x, focus_y = focus
+    extra_width = max(0, scaled.width() - target_size.width())
+    extra_height = max(0, scaled.height() - target_size.height())
+    offset_x = int(round(extra_width * _clamp(focus_x)))
+    offset_y = int(round(extra_height * _clamp(focus_y)))
+    return scaled.copy(offset_x, offset_y, target_size.width(), target_size.height())
+
 
 class AppButton(QPushButton):
     """Button used in grid view to display an application."""
@@ -63,12 +102,9 @@ class AppButton(QPushButton):
             if has_custom_icon:
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    scaled = pixmap.scaled(
-                        *TOKENS.sizes.grid_button,
-                        Qt.IgnoreAspectRatio,
-                        Qt.SmoothTransformation,
-                    )
-                    self.setIcon(QIcon(scaled))
+                    focus = _resolve_icon_focus(app_data)
+                    fitted = fit_pixmap_cover(pixmap, QSize(*TOKENS.sizes.grid_button), focus)
+                    self.setIcon(QIcon(fitted))
                 else:
                     self.setIcon(QIcon(icon_path))
             else:
@@ -226,7 +262,15 @@ class AppListItem(QWidget):
         icon_label = QLabel()
         icon_path = app_data.get("icon_path", "")
         if icon_path and os.path.exists(icon_path):
-            icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
+            if app_data.get("custom_icon"):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    focus = _resolve_icon_focus(app_data)
+                    icon_label.setPixmap(fit_pixmap_cover(pixmap, QSize(32, 32), focus))
+                else:
+                    icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
+            else:
+                icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
         layout.addWidget(icon_label)
 
         text_layout = QVBoxLayout()
