@@ -58,7 +58,7 @@ def _resolve_icon_zoom(app_data: dict) -> float:
     return 1.0
 
 
-def fit_pixmap_cover(
+def fit_pixmap_cropper(
     pixmap: QPixmap,
     target_size: QSize,
     focus: tuple[float, float],
@@ -66,7 +66,7 @@ def fit_pixmap_cover(
 ) -> QPixmap:
     if pixmap.isNull() or target_size.isEmpty():
         return pixmap
-    base_scale = max(
+    base_scale = min(
         target_size.width() / pixmap.width(),
         target_size.height() / pixmap.height(),
     )
@@ -136,7 +136,7 @@ class AppButton(QPushButton):
                 if not pixmap.isNull():
                     focus = _resolve_icon_focus(app_data)
                     zoom = _resolve_icon_zoom(app_data)
-                    fitted = fit_pixmap_cover(pixmap, QSize(*TOKENS.sizes.grid_button), focus, zoom)
+                    fitted = fit_pixmap_cropper(pixmap, QSize(*TOKENS.sizes.grid_button), focus, zoom)
                     self.setIcon(QIcon(fitted))
                 else:
                     self.setIcon(QIcon(icon_path))
@@ -300,7 +300,7 @@ class AppListItem(QWidget):
                 if not pixmap.isNull():
                     focus = _resolve_icon_focus(app_data)
                     zoom = _resolve_icon_zoom(app_data)
-                    icon_label.setPixmap(fit_pixmap_cover(pixmap, QSize(32, 32), focus, zoom))
+                    icon_label.setPixmap(fit_pixmap_cropper(pixmap, QSize(32, 32), focus, zoom))
                 else:
                     icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
             else:

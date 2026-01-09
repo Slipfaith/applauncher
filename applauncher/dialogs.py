@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 
 from .styles import TOKENS
-from .widgets import ICON_FOCUS_PRESETS, fit_pixmap_cover
+from .widgets import ICON_FOCUS_PRESETS, fit_pixmap_cropper
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class IconCropPreview(QLabel):
             self.clear()
             return
         target_size = self.size()
-        fitted = fit_pixmap_cover(self._pixmap, target_size, self._focus, self._zoom)
+        fitted = fit_pixmap_cropper(self._pixmap, target_size, self._focus, self._zoom)
         self.setPixmap(fitted)
 
     def resizeEvent(self, event) -> None:
@@ -99,7 +99,7 @@ class IconCropPreview(QLabel):
         target_size = self.size()
         if target_size.isEmpty():
             return
-        base_scale = max(
+        base_scale = min(
             target_size.width() / self._pixmap.width(),
             target_size.height() / self._pixmap.height(),
         )
@@ -204,7 +204,9 @@ class AddAppDialog(QDialog):
         self.icon_preview.setFixedSize(*TOKENS.sizes.grid_button)
         layout.addWidget(self.icon_preview)
 
-        focus_help = QLabel("Перетаскивайте изображение мышью и используйте колесо для масштаба.")
+        focus_help = QLabel(
+            "Перетаскивайте изображение мышью, чтобы выбрать область, и используйте колесо для масштаба."
+        )
         layout.addWidget(focus_help)
 
         group_label = QLabel("Группа")
