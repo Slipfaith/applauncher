@@ -129,6 +129,7 @@ class AppLauncher(QMainWindow):
             "url": self._launch_url,
             "exe": self._launch_executable,
             "lnk": self._launch_shortcut,
+            "folder": self._launch_folder,
         }
 
         self.create_tray_icon()
@@ -314,6 +315,22 @@ class AppLauncher(QMainWindow):
             file_path = url.toLocalFile()
             suffix = Path(file_path).suffix.lower()
 
+            if os.path.isdir(file_path):
+                name = Path(file_path).name
+                app_data = {
+                    "name": name,
+                    "path": file_path,
+                    "icon_path": "",
+                    "type": "folder",
+                    "group": self.current_group,
+                    "usage_count": 0,
+                    "source": "manual",
+                }
+                self.repository.add_app(app_data)
+                added = True
+                logger.info("Добавлена папка из перетаскивания: %s", file_path)
+                continue
+
             if suffix in {".exe", ".lnk", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
                 name = Path(file_path).stem
                 app_data = {
@@ -465,7 +482,10 @@ class AppLauncher(QMainWindow):
         if app_data.get("type") == "url":
             QMessageBox.information(self, "Информация", "Для веб-ссылок нет локальной папки")
             return
-        folder = Path(app_data["path"]).parent
+        if app_data.get("type") == "folder":
+            folder = Path(app_data["path"])
+        else:
+            folder = Path(app_data["path"]).parent
         if folder.exists():
             try:
                 os.startfile(folder)
@@ -608,6 +628,14 @@ class AppLauncher(QMainWindow):
                 )
                 return None
             data["path"] = normalized
+        elif item_type == "folder":
+            if not path_value:
+                QMessageBox.warning(self, "Ошибка", "Укажите путь к папке")
+                return None
+            if not os.path.isdir(path_value):
+                QMessageBox.warning(self, "Ошибка", f"Папка не найдена:\n{path_value}")
+                return None
+            data["type"] = "folder"
         else:
             if not path_value:
                 QMessageBox.warning(self, "Ошибка", "Укажите путь к исполняемому файлу")
@@ -684,6 +712,21 @@ class AppLauncher(QMainWindow):
         except OSError as err:  # pragma: no cover - system dependent
             QMessageBox.warning(self, "Ошибка", f"Не удалось запустить ярлык:\n{err}")
             logger.warning("Ошибка запуска ярлыка %s: %s", path_value, err)
+            return False
+
+    def _launch_folder(self, app_data: dict) -> bool:
+        path_value = app_data.get("path", "")
+        if not os.path.isdir(path_value):
+            QMessageBox.warning(self, "Ошибка", f"Папка не найдена:\n{path_value}")
+            logger.warning("Папка не найдена: %s", path_value)
+            return False
+        try:
+            os.startfile(path_value)
+            logger.info("Открыта папка %s", path_value)
+            return True
+        except OSError as err:  # pragma: no cover - system dependent
+            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть папку:\n{err}")
+            logger.warning("Ошибка открытия папки %s: %s", path_value, err)
             return False
 
     def _start_icon_extraction(self, app_data: dict | None):

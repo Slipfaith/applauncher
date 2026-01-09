@@ -19,7 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 class AddAppDialog(QDialog):
-    def __init__(self, parent=None, edit_mode: bool = False, app_data: dict | None = None, groups: list[str] | None = None):
+    def __init__(
+        self,
+        parent=None,
+        edit_mode: bool = False,
+        app_data: dict | None = None,
+        groups: list[str] | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Редактировать" if edit_mode else "Добавить элемент")
         self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
@@ -37,9 +43,12 @@ class AddAppDialog(QDialog):
         type_label = QLabel("Тип элемента")
         layout.addWidget(type_label)
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["💻 Приложение", "🌐 Веб-сайт"])
-        if app_data and app_data.get("type") == "url":
-            self.type_combo.setCurrentIndex(1)
+        self.type_combo.addItems(["💻 Приложение", "🌐 Веб-сайт", "📁 Папка"])
+        if app_data:
+            if app_data.get("type") == "url":
+                self.type_combo.setCurrentIndex(1)
+            elif app_data.get("type") == "folder":
+                self.type_combo.setCurrentIndex(2)
         self.type_combo.currentIndexChanged.connect(self.on_type_changed)
         layout.addWidget(self.type_combo)
 
@@ -112,17 +121,30 @@ class AddAppDialog(QDialog):
         self.on_type_changed()
 
     def on_type_changed(self):
-        is_url = self.type_combo.currentIndex() == 1
+        current_index = self.type_combo.currentIndex()
+        is_url = current_index == 1
+        is_folder = current_index == 2
         if is_url:
             self.path_label.setText("URL адрес")
             self.browse_btn.setVisible(False)
             self.path_input.setPlaceholderText("https://example.com")
+        elif is_folder:
+            self.path_label.setText("Путь к папке")
+            self.browse_btn.setVisible(True)
+            self.path_input.setPlaceholderText("")
         else:
             self.path_label.setText("Путь к файлу или ярлыку")
             self.browse_btn.setVisible(True)
             self.path_input.setPlaceholderText("")
 
     def browse_path(self):
+        if self.type_combo.currentIndex() == 2:
+            folder_path = QFileDialog.getExistingDirectory(self, "Выберите папку", "")
+            if folder_path:
+                self.path_input.setText(folder_path)
+                if not self.name_input.text():
+                    self.name_input.setText(Path(folder_path).name)
+            return
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите файл приложения",
@@ -140,10 +162,15 @@ class AddAppDialog(QDialog):
             self.icon_input.setText(file_path)
 
     def get_data(self) -> dict:
+        current_type = "exe"
+        if self.type_combo.currentIndex() == 1:
+            current_type = "url"
+        elif self.type_combo.currentIndex() == 2:
+            current_type = "folder"
         return {
             "name": self.name_input.text(),
             "path": self.path_input.text(),
             "icon_path": self.icon_input.text(),
-            "type": "url" if self.type_combo.currentIndex() == 1 else "exe",
+            "type": current_type,
             "group": self.group_input.currentText() or "Общее",
         }
