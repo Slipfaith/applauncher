@@ -52,6 +52,8 @@ class AppButton(QPushButton):
         has_custom_icon = bool(app_data.get("custom_icon"))
         if app_type == "url" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"🌐 {display_name}"
+        elif app_type == "folder" and not (icon_path and os.path.exists(icon_path)):
+            display_label = f"📁 {display_name}"
         self.setToolTip(display_name)
         self.setText("" if has_custom_icon else self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
@@ -213,7 +215,13 @@ class AppListItem(QWidget):
 
         text_layout = QVBoxLayout()
         prefix = "★ " if app_data.get("favorite") else ""
-        name_label = QLabel(f"{prefix}{app_data['name']}")
+        app_type = app_data.get("type", "exe")
+        if app_type == "url":
+            name_label = QLabel(f"🌐 {prefix}{app_data['name']}")
+        elif app_type == "folder":
+            name_label = QLabel(f"📁 {prefix}{app_data['name']}")
+        else:
+            name_label = QLabel(f"{prefix}{app_data['name']}")
         name_label.setProperty("role", "listTitle")
         text_layout.addWidget(name_label)
 
