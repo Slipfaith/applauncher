@@ -346,6 +346,10 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         color: {colors.text_primary};
     }}
 
+    QPushButton[role="appTile"][iconMode="full"] {{
+        padding: 0px;
+    }}
+
     QPushButton[role="appTile"]:hover {{
         background-color: {colors.surface_hover};
     }}
