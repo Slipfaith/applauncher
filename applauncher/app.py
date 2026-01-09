@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -119,10 +119,16 @@ class AppLauncher(QMainWindow):
         self._save_timer.timeout.connect(self._persist_config)
         self.thread_pool = QThreadPool.globalInstance()
         self._icon_tasks: list[IconExtractionWorker] = []
+        self.shortcut_watcher = QFileSystemWatcher(self)
+        self.shortcut_scan_timer = QTimer(self)
+        self.shortcut_scan_timer.setSingleShot(True)
+        self.shortcut_scan_timer.setInterval(500)
+        self.shortcut_scan_timer.timeout.connect(self._rescan_shortcuts)
+        self.shortcut_roots: list[Path] = []
         self.launch_handlers = {
             "url": self._launch_url,
             "exe": self._launch_executable,
-            "lnk": self._launch_executable,
+            "lnk": self._launch_shortcut,
         }
 
         self.create_tray_icon()
@@ -239,6 +245,7 @@ class AppLauncher(QMainWindow):
         main_layout.addWidget(content_widget)
 
         self.load_state()
+        self._setup_shortcut_discovery()
         self.setup_shortcuts()
         self.refresh_view()
 
@@ -292,15 +299,16 @@ class AppLauncher(QMainWindow):
             file_path = url.toLocalFile()
             suffix = Path(file_path).suffix.lower()
 
-            if suffix in {".exe", ".lnk"} and os.path.exists(file_path):
+            if suffix in {".exe", ".lnk", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
                 name = Path(file_path).stem
                 app_data = {
                     "name": name,
                     "path": file_path,
                     "icon_path": "",
-                    "type": suffix.lstrip("."),
+                    "type": "lnk" if suffix == ".lnk" else "exe",
                     "group": self.current_group,
                     "usage_count": 0,
+                    "source": "manual",
                 }
                 self.repository.add_app(app_data)
                 self._start_icon_extraction(app_data)
@@ -339,6 +347,7 @@ class AppLauncher(QMainWindow):
                     previous_icon = app.get("icon_path")
                     previous_custom_icon = app.get("custom_icon", False)
                     updated["usage_count"] = app.get("usage_count", 0)
+                    updated["source"] = app.get("source", "manual")
                     if updated.get("icon_path") != previous_icon:
                         updated["custom_icon"] = bool(updated.get("icon_path"))
                     else:
@@ -570,10 +579,13 @@ class AppLauncher(QMainWindow):
             if not os.path.exists(path_value):
                 QMessageBox.warning(self, "Ошибка", f"Файл не найден:\n{path_value}")
                 return None
+            suffix = Path(path_value).suffix.lower()
+            data["type"] = "lnk" if suffix == ".lnk" else "exe"
         data.setdefault("group", DEFAULT_GROUP)
         data.setdefault("usage_count", 0)
         data.setdefault("favorite", False)
         data.setdefault("args", [])
+        data.setdefault("source", "manual")
         return data
 
     def _normalize_url(self, url: str) -> str:
@@ -623,8 +635,30 @@ class AppLauncher(QMainWindow):
             logger.warning("Ошибка запуска %s: %s", path_value, err)
             return False
 
+    def _launch_shortcut(self, app_data: dict) -> bool:
+        path_value = app_data.get("path", "")
+        if not os.path.exists(path_value):
+            QMessageBox.warning(self, "Ошибка", f"Файл не найден:\n{path_value}")
+            logger.warning("Файл не найден: %s", path_value)
+            return False
+        try:
+            os.startfile(path_value)
+            logger.info("Запуск ярлыка %s", path_value)
+            return True
+        except OSError as err:  # pragma: no cover - system dependent
+            QMessageBox.warning(self, "Ошибка", f"Не удалось запустить ярлык:\n{err}")
+            logger.warning("Ошибка запуска ярлыка %s: %s", path_value, err)
+            return False
+
     def _start_icon_extraction(self, app_data: dict | None):
-        if not app_data or app_data.get("type") != "exe" or app_data.get("icon_path"):
+        if not app_data or app_data.get("icon_path"):
+            return
+        if app_data.get("type") == "lnk":
+            if self.repository.update_icon(app_data["path"], app_data["path"]):
+                self.schedule_save()
+                self.refresh_view()
+            return
+        if app_data.get("type") != "exe":
             return
         worker = IconExtractionWorker(app_data["path"])
         worker.signals.finished.connect(
@@ -632,6 +666,113 @@ class AppLauncher(QMainWindow):
         )
         self._icon_tasks.append(worker)
         self.thread_pool.start(worker)
+
+    def _setup_shortcut_discovery(self) -> None:
+        self.shortcut_watcher.directoryChanged.connect(self._schedule_shortcut_rescan)
+        self.shortcut_roots = self._get_shortcut_roots()
+        self._refresh_shortcut_watcher()
+        self._sync_shortcuts()
+
+    def _schedule_shortcut_rescan(self, _path: str) -> None:
+        self.shortcut_scan_timer.start()
+
+    def _rescan_shortcuts(self) -> None:
+        self.shortcut_roots = self._get_shortcut_roots()
+        self._refresh_shortcut_watcher()
+        self._sync_shortcuts()
+
+    def _refresh_shortcut_watcher(self) -> None:
+        watched = self.shortcut_watcher.directories()
+        if watched:
+            self.shortcut_watcher.removePaths(watched)
+        directories: list[str] = []
+        for root in self.shortcut_roots:
+            if not root.exists():
+                continue
+            directories.append(str(root))
+            for dirpath, dirnames, _ in os.walk(root):
+                for dirname in dirnames:
+                    directories.append(str(Path(dirpath) / dirname))
+        if directories:
+            self.shortcut_watcher.addPaths(directories)
+
+    def _get_shortcut_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        appdata = os.environ.get("APPDATA")
+        programdata = os.environ.get("PROGRAMDATA")
+        if appdata:
+            roots.append(
+                Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+            )
+        if programdata:
+            roots.append(
+                Path(programdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+            )
+        home = Path.home()
+        roots.extend([home / "Desktop", home / "Documents", home / "Downloads"])
+        return [root for root in roots if root.exists()]
+
+    def _sync_shortcuts(self) -> None:
+        shortcut_paths = self._collect_shortcut_paths()
+        normalized_shortcuts = {
+            os.path.normcase(os.path.abspath(path)): path for path in shortcut_paths
+        }
+        manual_paths = {
+            os.path.normcase(os.path.abspath(app["path"]))
+            for app in self.repository.apps
+            if app.get("source") != "auto"
+        }
+        auto_apps = [
+            app for app in list(self.repository.apps) if app.get("source") == "auto"
+        ]
+        auto_paths = {
+            os.path.normcase(os.path.abspath(app["path"])): app for app in auto_apps
+        }
+        changed = False
+
+        for app in auto_apps:
+            normalized = os.path.normcase(os.path.abspath(app["path"]))
+            if normalized not in normalized_shortcuts:
+                self.repository.delete_app(app["path"])
+                changed = True
+                logger.info("Удален ярлык из списка: %s", app["path"])
+
+        for normalized, path_value in normalized_shortcuts.items():
+            if normalized in manual_paths:
+                continue
+            if normalized in auto_paths:
+                auto_app = auto_paths[normalized]
+                if not auto_app.get("icon_path"):
+                    self.repository.update_icon(auto_app["path"], auto_app["path"])
+                    changed = True
+                continue
+            new_app = {
+                "name": Path(path_value).stem,
+                "path": path_value,
+                "icon_path": path_value,
+                "type": "lnk",
+                "group": DEFAULT_GROUP,
+                "usage_count": 0,
+                "source": "auto",
+            }
+            self.repository.add_app(new_app)
+            changed = True
+            logger.info("Добавлен ярлык из системы: %s", path_value)
+
+        if changed:
+            self.schedule_save()
+            self.refresh_view()
+
+    def _collect_shortcut_paths(self) -> list[str]:
+        shortcuts: list[str] = []
+        for root in self.shortcut_roots:
+            if not root.exists():
+                continue
+            for dirpath, _, filenames in os.walk(root):
+                for filename in filenames:
+                    if filename.lower().endswith(".lnk"):
+                        shortcuts.append(str(Path(dirpath) / filename))
+        return shortcuts
 
     def _on_icon_extracted(
         self, path: str, icon_path: str, worker: IconExtractionWorker | None = None
