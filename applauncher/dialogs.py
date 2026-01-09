@@ -118,12 +118,17 @@ class AddAppDialog(QDialog):
             self.browse_btn.setVisible(False)
             self.path_input.setPlaceholderText("https://example.com")
         else:
-            self.path_label.setText("Путь к исполняемому файлу")
+            self.path_label.setText("Путь к файлу или ярлыку")
             self.browse_btn.setVisible(True)
             self.path_input.setPlaceholderText("")
 
     def browse_path(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Выберите EXE файл", "", "Executable Files (*.exe)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите файл приложения",
+            "",
+            "Executable Files (*.exe *.lnk *.bat *.cmd *.py)",
+        )
         if file_path:
             self.path_input.setText(file_path)
             if not self.name_input.text():
