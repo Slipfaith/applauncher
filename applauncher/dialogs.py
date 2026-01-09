@@ -87,6 +87,30 @@ class AddAppDialog(QDialog):
         icon_layout.addWidget(icon_btn)
         layout.addLayout(icon_layout)
 
+        focus_label = QLabel("Область отображения")
+        layout.addWidget(focus_label)
+        self.focus_combo = QComboBox()
+        focus_options = [
+            ("Центр", "center"),
+            ("Верх", "top"),
+            ("Низ", "bottom"),
+            ("Слева", "left"),
+            ("Справа", "right"),
+            ("Верх слева", "top_left"),
+            ("Верх справа", "top_right"),
+            ("Низ слева", "bottom_left"),
+            ("Низ справа", "bottom_right"),
+        ]
+        for label, value in focus_options:
+            self.focus_combo.addItem(label, value)
+        if app_data:
+            focus_value = app_data.get("icon_focus", "center")
+            for idx in range(self.focus_combo.count()):
+                if self.focus_combo.itemData(idx) == focus_value:
+                    self.focus_combo.setCurrentIndex(idx)
+                    break
+        layout.addWidget(self.focus_combo)
+
         group_label = QLabel("Группа")
         layout.addWidget(group_label)
         self.group_input = QComboBox()
@@ -171,6 +195,7 @@ class AddAppDialog(QDialog):
             "name": self.name_input.text(),
             "path": self.path_input.text(),
             "icon_path": self.icon_input.text(),
+            "icon_focus": self.focus_combo.currentData(),
             "type": current_type,
             "group": self.group_input.currentText() or "Общее",
         }

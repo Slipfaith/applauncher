@@ -102,7 +102,17 @@ class AppRepository:
                     k: v
                     for k, v in fallback.items()
                     if k
-                    in {"usage_count", "icon_path", "favorite", "args", "custom_icon", "source"}
+                    in {
+                        "usage_count",
+                        "icon_path",
+                        "favorite",
+                        "args",
+                        "custom_icon",
+                        "source",
+                        "icon_focus",
+                        "icon_focus_x",
+                        "icon_focus_y",
+                    }
                 }
             )
         prepared.update(app_data)
@@ -113,4 +123,5 @@ class AppRepository:
         prepared.setdefault("args", [])
         prepared.setdefault("custom_icon", False)
         prepared.setdefault("source", "manual")
+        prepared.setdefault("icon_focus", "center")
         return prepared
