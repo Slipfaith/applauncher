@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt, QSize, Signal, QMimeData
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from .styles import TOKENS, apply_shadow
-from .repository import DEFAULT_GROUP
+from ..repository import DEFAULT_GROUP
 from .tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 from .tile_image.utils import load_icon_file
 

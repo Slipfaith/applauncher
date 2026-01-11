@@ -1,7 +1,7 @@
 """Entry point for the application launcher."""
 import sys
 
-from applauncher.app import run_app
+from applauncher.gui.app import run_app
 from applauncher.logger import setup_logging
 
 
