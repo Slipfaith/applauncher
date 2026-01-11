@@ -11,93 +11,14 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QMimeData, QRect
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPainter, QPixmap
+from PySide6.QtCore import Qt, QSize, Signal, QMimeData
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPixmap
 
 from .styles import TOKENS, apply_shadow
 from .repository import DEFAULT_GROUP
+from .tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 
 logger = logging.getLogger(__name__)
-
-def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
-    return max(minimum, min(maximum, value))
-
-
-def _resolve_icon_frame(app_data: dict) -> tuple[float, float, float, float] | None:
-    frame_x = app_data.get("icon_frame_x")
-    frame_y = app_data.get("icon_frame_y")
-    frame_w = app_data.get("icon_frame_w")
-    frame_h = app_data.get("icon_frame_h")
-    if not all(isinstance(value, (int, float)) for value in (frame_x, frame_y, frame_w, frame_h)):
-        return None
-    frame_w = float(frame_w)
-    frame_h = float(frame_h)
-    if frame_w <= 0 or frame_h <= 0:
-        return None
-    return (
-        _clamp(float(frame_x)),
-        _clamp(float(frame_y)),
-        _clamp(float(frame_w)),
-        _clamp(float(frame_h)),
-    )
-
-
-def default_icon_frame(pixmap: QPixmap, target_size: QSize) -> tuple[float, float, float, float]:
-    if pixmap.isNull() or target_size.isEmpty():
-        return (0.0, 0.0, 1.0, 1.0)
-    image_width = pixmap.width()
-    image_height = pixmap.height()
-    if image_width <= 0 or image_height <= 0:
-        return (0.0, 0.0, 1.0, 1.0)
-    target_aspect = target_size.width() / target_size.height()
-    image_aspect = image_width / image_height
-    if image_aspect >= target_aspect:
-        frame_height = image_height
-        frame_width = frame_height * target_aspect
-        frame_x = (image_width - frame_width) / 2
-        frame_y = 0
-    else:
-        frame_width = image_width
-        frame_height = frame_width / target_aspect
-        frame_x = 0
-        frame_y = (image_height - frame_height) / 2
-    return (
-        frame_x / image_width,
-        frame_y / image_height,
-        frame_width / image_width,
-        frame_height / image_height,
-    )
-
-
-def render_framed_pixmap(
-    pixmap: QPixmap,
-    target_size: QSize,
-    frame: tuple[float, float, float, float] | None = None,
-) -> QPixmap:
-    if pixmap.isNull() or target_size.isEmpty():
-        return pixmap
-    frame = frame or default_icon_frame(pixmap, target_size)
-    image_width = pixmap.width()
-    image_height = pixmap.height()
-    frame_x = int(round(_clamp(frame[0]) * image_width))
-    frame_y = int(round(_clamp(frame[1]) * image_height))
-    frame_w = int(round(_clamp(frame[2]) * image_width))
-    frame_h = int(round(_clamp(frame[3]) * image_height))
-    if frame_w <= 0 or frame_h <= 0:
-        frame_x, frame_y, frame_w, frame_h = 0, 0, image_width, image_height
-    frame_rect = QRect(frame_x, frame_y, frame_w, frame_h).intersected(
-        QRect(0, 0, image_width, image_height)
-    )
-    cropped = pixmap.copy(frame_rect)
-    scaled = cropped.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    target_pixmap = QPixmap(target_size)
-    target_pixmap.fill(Qt.transparent)
-    painter = QPainter(target_pixmap)
-    offset_x = int(round((target_size.width() - scaled.width()) / 2))
-    offset_y = int(round((target_size.height() - scaled.height()) / 2))
-    painter.drawPixmap(offset_x, offset_y, scaled)
-    painter.end()
-    return target_pixmap
 
 
 class AppButton(QPushButton):
@@ -143,7 +64,7 @@ class AppButton(QPushButton):
             if has_custom_icon:
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    frame = _resolve_icon_frame(app_data)
+                    frame = resolve_icon_frame(app_data)
                     fitted = render_framed_pixmap(pixmap, QSize(*TOKENS.sizes.grid_button), frame)
                     self.setIcon(QIcon(fitted))
                 else:
@@ -306,7 +227,7 @@ class AppListItem(QWidget):
             if app_data.get("custom_icon"):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    frame = _resolve_icon_frame(app_data)
+                    frame = resolve_icon_frame(app_data)
                     icon_label.setPixmap(render_framed_pixmap(pixmap, QSize(32, 32), frame))
                 else:
                     icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
