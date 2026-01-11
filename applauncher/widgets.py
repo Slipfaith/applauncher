@@ -12,11 +12,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QMimeData
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QPixmap
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from .styles import TOKENS, apply_shadow
 from .repository import DEFAULT_GROUP
 from .tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
+from .tile_image.utils import load_icon_file
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class AppButton(QPushButton):
         self.setText("" if has_custom_icon else self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
             if has_custom_icon:
-                pixmap = QPixmap(icon_path)
+                pixmap = load_icon_file(icon_path)
                 if not pixmap.isNull():
                     frame = resolve_icon_frame(app_data)
                     fitted = render_framed_pixmap(pixmap, QSize(*TOKENS.sizes.grid_button), frame)
@@ -225,7 +226,7 @@ class AppListItem(QWidget):
         icon_path = app_data.get("icon_path", "")
         if icon_path and os.path.exists(icon_path):
             if app_data.get("custom_icon"):
-                pixmap = QPixmap(icon_path)
+                pixmap = load_icon_file(icon_path)
                 if not pixmap.isNull():
                     frame = resolve_icon_frame(app_data)
                     icon_label.setPixmap(render_framed_pixmap(pixmap, QSize(32, 32), frame))

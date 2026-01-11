@@ -37,6 +37,9 @@ class IconFrameEditor(QLabel):
     def set_source_from_file(self, filepath: str) -> None:
         """Загружает иконку из файла с правильной обработкой ICO."""
         pixmap = load_icon_file(filepath)
+        if pixmap.isNull():
+            self.clear_source()
+            return
         self.set_source_pixmap(pixmap)
 
     def clear_source(self) -> None:

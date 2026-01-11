@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QPixmap
 
 from .styles import TOKENS
 from .tile_image import IconFrameEditor, clamp, default_icon_frame
@@ -211,11 +210,7 @@ class AddAppDialog(QDialog):
             self.icon_preview.clear_source()
             self._last_icon_path = ""
             return
-        pixmap = QPixmap(icon_path)
-        if pixmap.isNull():
-            self.icon_preview.clear_source()
-            return
-        self.icon_preview.set_source_pixmap(pixmap)
+        self.icon_preview.set_source_from_file(icon_path)
         if icon_path != self._last_icon_path:
             self.icon_preview.reset_frame()
             self._last_icon_path = icon_path
