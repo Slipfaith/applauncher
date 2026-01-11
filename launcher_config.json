@@ -1,0 +1,41 @@
+{
+  "apps": [
+    {
+      "usage_count": 0,
+      "group": "Общее",
+      "icon_path": "C:/Users/Slipfaith/Desktop/snap_01.png",
+      "args": [],
+      "source": "manual",
+      "favorite": false,
+      "custom_icon": true,
+      "icon_frame_x": 0.09166666666666666,
+      "icon_frame_y": 0.0,
+      "icon_frame_w": 0.8083333333333333,
+      "icon_frame_h": 1.0,
+      "name": "Diablo 2 Lord of Destruction",
+      "path": "C:\\Program Files (x86)\\R.G. Mechanics\\Diablo 2 Lord of Destruction\\Diablo II.exe",
+      "type": "exe"
+    },
+    {
+      "usage_count": 0,
+      "group": "Общее",
+      "icon_path": "C:/Users/Slipfaith/Pictures/snap_03.png",
+      "args": [],
+      "source": "manual",
+      "favorite": false,
+      "custom_icon": true,
+      "icon_frame_x": 0.0,
+      "icon_frame_y": 0.0,
+      "icon_frame_w": 1.0,
+      "icon_frame_h": 1.0,
+      "name": "Left 4 Dead 2",
+      "path": "steam://rungameid/550",
+      "type": "url"
+    }
+  ],
+  "groups": [
+    "Общее",
+    "ПУК"
+  ],
+  "view_mode": "grid"
+}

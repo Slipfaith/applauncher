@@ -1,0 +1,3 @@
+1/9 13:05:48.360  Auto-picking gateway based on GMT
+1/9 13:05:48.360      Find gateway closest to -3.00
+1/9 13:05:48.360      Gateway 4 (europe.battle.net at GMT -1) is closest to -3.00
