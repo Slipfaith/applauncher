@@ -34,14 +34,14 @@ from PySide6.QtGui import (
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from .dialogs import AddAppDialog
+from .icon_service import IconService
 from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .repository import DEFAULT_GROUP
-from .services.icon_service import IconService
-from .services.launch_service import LaunchService
-from .services.launcher_service import LauncherService
-from .services.validation import extract_shortcut_data, normalize_url, validate_app_data
 from .widgets import AppButton, AppListItem, TitleBar
+from ..repository import DEFAULT_GROUP
+from ..services.launch_service import LaunchService
+from ..services.launcher_service import LauncherService
+from ..services.validation import extract_shortcut_data, normalize_url, validate_app_data
 
 logger = logging.getLogger(__name__)
 

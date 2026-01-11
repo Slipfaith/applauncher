@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
-from ..icons import extract_icon_with_fallback
+from .icons import extract_icon_with_fallback
 from ..repository import AppRepository
 
 logger = logging.getLogger(__name__)
