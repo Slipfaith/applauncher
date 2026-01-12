@@ -1,11 +1,15 @@
 """Main application window."""
 import os
+import sys
 import logging
+import ctypes
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
     QInputDialog,
     QLineEdit,
     QMainWindow,
@@ -21,11 +25,25 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QAbstractAnimation,
+    QPropertyAnimation,
+    QParallelAnimationGroup,
+    QEasingCurve,
+    QRect,
+    QSettings,
+    QTimer,
+    QVariantAnimation,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
+    QCursor,
     QDragEnterEvent,
     QDropEvent,
+    QGuiApplication,
     QIcon,
     QPixmap,
     QKeySequence,
@@ -36,7 +54,13 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from .dialogs import AddAppDialog, AddMacroDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
-from .styles import TOKENS, apply_design_system, apply_shadow
+from .styles import (
+    TOKENS,
+    apply_design_system,
+    apply_shadow,
+    build_theme_tokens,
+    interpolate_color_tokens,
+)
 from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
 from ..services.clipboard_service import ClipboardService
@@ -93,10 +117,12 @@ class GroupTabBar(QTabBar):
 class AppLauncher(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setObjectName("mainWindow")
         self.setMinimumSize(*TOKENS.sizes.window_min)
+        self.resize(600, 400)
         self.setAcceptDrops(True)
 
         self.service = LauncherService()
@@ -107,6 +133,15 @@ class AppLauncher(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(300)
         self._save_timer.timeout.connect(self._persist_config)
+        self._entry_animations: list[QPropertyAnimation] = []
+        self._theme_mode = "light"
+        self._accent_color = QColor(TOKENS.colors.accent)
+        self._theme_animation: QVariantAnimation | None = None
+        self._open_animation: QParallelAnimationGroup | None = None
+        self._close_animation: QParallelAnimationGroup | None = None
+        self._closing = False
+        self._search_pulse_animation: QPropertyAnimation | None = None
+        self._search_glow_animation: QVariantAnimation | None = None
         self.launch_service = LaunchService()
         self.hotkey_service = HotkeyService(self)
         self.clipboard_service = ClipboardService(self)
@@ -127,6 +162,7 @@ class AppLauncher(QMainWindow):
         container = QWidget()
         container.setObjectName("centralContainer")
         self.setCentralWidget(container)
+        apply_shadow(container, TOKENS.shadows.floating)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(
@@ -224,6 +260,7 @@ class AppLauncher(QMainWindow):
         self.search_input.setObjectName("searchInput")
         self.search_input.textChanged.connect(self.refresh_view)
         self.search_input.returnPressed.connect(self.launch_top_result)
+        self.search_input.installEventFilter(self)
         search_layout.addWidget(self.search_input)
 
         self.view_toggle = QPushButton()
@@ -298,6 +335,9 @@ class AppLauncher(QMainWindow):
 
         self.load_state()
         self.setWindowOpacity(self.service.window_opacity)
+        self._apply_system_theme(initial=True)
+        self._setup_theme_timer()
+        self._enable_backdrop_blur()
         self.setup_shortcuts()
         self.refresh_view()
 
@@ -308,7 +348,7 @@ class AppLauncher(QMainWindow):
         self.tray_icon = QSystemTrayIcon(self)
 
         pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
-        pixmap.fill(QColor(TOKENS.colors.accent))
+        pixmap.fill(self._accent_color)
         icon = QIcon(pixmap)
         self.tray_icon.setIcon(icon)
 
@@ -328,6 +368,151 @@ class AppLauncher(QMainWindow):
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
         self.tray_icon.show()
+
+    def _update_tray_icon(self) -> None:
+        if not self.tray_icon:
+            return
+        pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
+        pixmap.fill(self._accent_color)
+        self.tray_icon.setIcon(QIcon(pixmap))
+
+    def _setup_theme_timer(self) -> None:
+        timer = QTimer(self)
+        timer.setInterval(1000)
+        timer.timeout.connect(self._apply_system_theme)
+        timer.start()
+        self._theme_timer = timer
+
+    def _apply_system_theme(self, initial: bool = False) -> None:
+        mode, accent = self._detect_system_theme()
+        if not initial and mode == self._theme_mode and accent == self._accent_color:
+            return
+        new_tokens = build_theme_tokens(mode, accent)
+        if initial:
+            self._theme_mode = mode
+            self._accent_color = accent
+            self._apply_theme_tokens(new_tokens)
+            return
+        self._animate_theme_transition(new_tokens, mode, accent)
+
+    def _apply_theme_tokens(self, tokens) -> None:
+        app = QApplication.instance()
+        if app:
+            apply_design_system(app, tokens)
+        self._update_tray_icon()
+
+    def _animate_theme_transition(self, target_tokens, mode: str, accent: QColor) -> None:
+        if self._theme_animation:
+            self._theme_animation.stop()
+        start_tokens = build_theme_tokens(self._theme_mode, self._accent_color)
+        self._theme_animation = QVariantAnimation(self)
+        self._theme_animation.setDuration(300)
+        self._theme_animation.setStartValue(0.0)
+        self._theme_animation.setEndValue(1.0)
+        self._theme_animation.setEasingCurve(QEasingCurve.OutCubic)
+
+        def on_value_changed(value):
+            progress = float(value)
+            colors = interpolate_color_tokens(start_tokens.colors, target_tokens.colors, progress)
+            interim = build_theme_tokens(mode, accent)
+            interim = interim.__class__(
+                colors=colors,
+                typography=interim.typography,
+                spacing=interim.spacing,
+                radii=interim.radii,
+                shadows=interim.shadows,
+                sizes=interim.sizes,
+                layout=interim.layout,
+            )
+            self._apply_theme_tokens(interim)
+
+        def on_finished():
+            self._theme_mode = mode
+            self._accent_color = accent
+            self._apply_theme_tokens(target_tokens)
+
+        self._theme_animation.valueChanged.connect(on_value_changed)
+        self._theme_animation.finished.connect(on_finished)
+        self._theme_animation.start()
+
+    def _detect_system_theme(self) -> tuple[str, QColor]:
+        if sys.platform != "win32":
+            return "light", QColor(TOKENS.colors.accent)
+        personalize = QSettings(
+            "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            QSettings.NativeFormat,
+        )
+        apps_light = personalize.value("AppsUseLightTheme", 1)
+        try:
+            mode = "light" if int(apps_light) == 1 else "dark"
+        except (TypeError, ValueError):
+            mode = "light"
+
+        accent = self._read_windows_accent_color()
+        return mode, accent
+
+    def _read_windows_accent_color(self) -> QColor:
+        settings = QSettings(
+            "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\DWM",
+            QSettings.NativeFormat,
+        )
+        raw = settings.value("AccentColor") or settings.value("ColorizationColor")
+        if raw is None:
+            return QColor(TOKENS.colors.accent)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            try:
+                value = int(str(raw), 0)
+            except (TypeError, ValueError):
+                return QColor(TOKENS.colors.accent)
+        red = value & 0xFF
+        green = (value >> 8) & 0xFF
+        blue = (value >> 16) & 0xFF
+        return QColor(red, green, blue)
+
+    def _enable_backdrop_blur(self) -> None:
+        if sys.platform != "win32":
+            return
+        hwnd = int(self.winId())
+        try:
+            self._set_windows_backdrop(hwnd)
+        except (AttributeError, OSError):
+            return
+
+    @staticmethod
+    def _set_windows_backdrop(hwnd: int) -> None:
+        class AccentPolicy(ctypes.Structure):
+            _fields_ = [
+                ("accent_state", ctypes.c_int),
+                ("accent_flags", ctypes.c_int),
+                ("gradient_color", ctypes.c_int),
+                ("animation_id", ctypes.c_int),
+            ]
+
+        class WindowCompositionAttributeData(ctypes.Structure):
+            _fields_ = [
+                ("attribute", ctypes.c_int),
+                ("data", ctypes.c_void_p),
+                ("size_of_data", ctypes.c_size_t),
+            ]
+
+        accent = AccentPolicy()
+        accent.accent_state = 4  # ACCENT_ENABLE_ACRYLICBLURBEHIND
+        accent.accent_flags = 2
+        accent.gradient_color = 0xCC000000
+
+        data = WindowCompositionAttributeData()
+        data.attribute = 19  # WCA_ACCENT_POLICY
+        data.data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)
+        data.size_of_data = ctypes.sizeof(accent)
+
+        set_window_composition_attribute = ctypes.windll.user32.SetWindowCompositionAttribute
+        set_window_composition_attribute(hwnd, ctypes.byref(data))
+
+        dwmapi = ctypes.windll.dwmapi
+        backdrop_type = ctypes.c_int(3)
+        dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop_type), ctypes.sizeof(backdrop_type))
 
     def on_tray_icon_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:
@@ -354,15 +539,12 @@ class AppLauncher(QMainWindow):
         self.settings_dialog.activateWindow()
 
     def closeEvent(self, event):
+        if self._closing:
+            event.accept()
+            return
         if self.tray_available and self.tray_icon:
             event.ignore()
-            self.hide()
-            self.tray_icon.showMessage(
-                "Лаунчер",
-                "Приложение свернуто в трей. Кликните на иконку для возврата.",
-                QSystemTrayIcon.Information,
-                2000,
-            )
+            self._animate_hide(self._hide_to_tray)
             return
         response = QMessageBox.question(
             self,
@@ -372,9 +554,146 @@ class AppLauncher(QMainWindow):
             QMessageBox.No,
         )
         if response == QMessageBox.Yes:
-            event.accept()
+            event.ignore()
+            self._animate_hide(self._final_close)
         else:
             event.ignore()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self.isMaximized():
+            self._center_on_active_screen()
+        self._animate_show()
+
+    def eventFilter(self, source, event):
+        if source is self.search_input and event.type() == QEvent.KeyPress:
+            self._trigger_search_pulse()
+        return super().eventFilter(source, event)
+
+    def _trigger_search_pulse(self) -> None:
+        if self.search_input is None:
+            return
+        if not isinstance(self.search_input.graphicsEffect(), QGraphicsDropShadowEffect):
+            effect = QGraphicsDropShadowEffect(self.search_input)
+            effect.setBlurRadius(12)
+            effect.setOffset(0, 0)
+            effect.setColor(QColor(self._accent_color))
+            self.search_input.setGraphicsEffect(effect)
+        effect = self.search_input.graphicsEffect()
+        if not isinstance(effect, QGraphicsDropShadowEffect):
+            return
+        if self._search_pulse_animation:
+            self._search_pulse_animation.stop()
+        if self._search_glow_animation:
+            self._search_glow_animation.stop()
+
+        self._search_pulse_animation = QPropertyAnimation(effect, b"blurRadius", self)
+        self._search_pulse_animation.setDuration(100)
+        self._search_pulse_animation.setStartValue(4.0)
+        self._search_pulse_animation.setEndValue(16.0)
+        self._search_pulse_animation.setEasingCurve(QEasingCurve.OutCubic)
+
+        self._search_glow_animation = QVariantAnimation(self)
+        self._search_glow_animation.setDuration(100)
+        self._search_glow_animation.setStartValue(0.2)
+        self._search_glow_animation.setEndValue(0.6)
+
+        def update_glow(value):
+            alpha = float(value)
+            glow = QColor(self._accent_color)
+            glow.setAlphaF(alpha)
+            effect.setColor(glow)
+
+        self._search_glow_animation.valueChanged.connect(update_glow)
+        self._search_pulse_animation.start()
+        self._search_glow_animation.start()
+
+    def _center_on_active_screen(self) -> None:
+        screen = QGuiApplication.screenAt(QCursor.pos())
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        if not screen:
+            return
+        geometry = screen.availableGeometry()
+        target_rect = self.geometry()
+        target_rect.moveCenter(geometry.center())
+        self.move(target_rect.topLeft())
+
+    def _animate_show(self) -> None:
+        if self._open_animation and self._open_animation.state() == QAbstractAnimation.Running:
+            return
+        final_geometry = self.geometry()
+        start_geometry = self._scaled_geometry(final_geometry, 0.9)
+        self.setWindowOpacity(0.0)
+        self.setGeometry(start_geometry)
+
+        self._open_animation = QParallelAnimationGroup(self)
+        opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        opacity_anim.setDuration(240)
+        opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
+        opacity_anim.setStartValue(0.0)
+        opacity_anim.setEndValue(self.service.window_opacity)
+        geometry_anim = QPropertyAnimation(self, b"geometry")
+        geometry_anim.setDuration(240)
+        geometry_anim.setEasingCurve(QEasingCurve.OutCubic)
+        geometry_anim.setStartValue(start_geometry)
+        geometry_anim.setEndValue(final_geometry)
+        self._open_animation.addAnimation(opacity_anim)
+        self._open_animation.addAnimation(geometry_anim)
+        self._open_animation.start()
+
+    def _animate_hide(self, callback) -> None:
+        if self._close_animation and self._close_animation.state() == QAbstractAnimation.Running:
+            return
+        start_geometry = self.geometry()
+        end_geometry = self._scaled_geometry(start_geometry, 0.9)
+
+        self._close_animation = QParallelAnimationGroup(self)
+        opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        opacity_anim.setDuration(150)
+        opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
+        opacity_anim.setStartValue(self.windowOpacity())
+        opacity_anim.setEndValue(0.0)
+        geometry_anim = QPropertyAnimation(self, b"geometry")
+        geometry_anim.setDuration(150)
+        geometry_anim.setEasingCurve(QEasingCurve.OutCubic)
+        geometry_anim.setStartValue(start_geometry)
+        geometry_anim.setEndValue(end_geometry)
+        self._close_animation.addAnimation(opacity_anim)
+        self._close_animation.addAnimation(geometry_anim)
+
+        def finish():
+            self._closing = True
+            callback()
+            self._closing = False
+            self.setWindowOpacity(self.service.window_opacity)
+
+        self._close_animation.finished.connect(finish)
+        self._close_animation.start()
+
+    def _hide_to_tray(self) -> None:
+        self.hide()
+        if self.tray_icon:
+            self.tray_icon.showMessage(
+                "Лаунчер",
+                "Приложение свернуто в трей. Кликните на иконку для возврата.",
+                QSystemTrayIcon.Information,
+                2000,
+            )
+
+    def _final_close(self) -> None:
+        self.close()
+
+    @staticmethod
+    def _scaled_geometry(rect, scale: float):
+        center = rect.center()
+        new_width = int(rect.width() * scale)
+        new_height = int(rect.height() * scale)
+        new_rect = QRect(rect)
+        new_rect.setWidth(new_width)
+        new_rect.setHeight(new_height)
+        new_rect.moveCenter(center)
+        return new_rect
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -789,6 +1108,9 @@ class AppLauncher(QMainWindow):
             self.populate_list(filtered)
 
     def populate_grid(self, apps: list[dict]):
+        for animation in self._entry_animations:
+            animation.stop()
+        self._entry_animations.clear()
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
             if item.widget():
@@ -813,8 +1135,12 @@ class AppLauncher(QMainWindow):
                 btn.favoriteToggled.connect(self.toggle_favorite)
             btn.moveRequested.connect(self.move_item_to_group)
             self.grid_layout.addWidget(btn)
+            self._animate_result_item(btn, len(self._entry_animations), restore_shadow=True)
 
     def populate_list(self, apps: list[dict]):
+        for animation in self._entry_animations:
+            animation.stop()
+        self._entry_animations.clear()
         while self.list_layout.count():
             item = self.list_layout.takeAt(0)
             if item.widget():
@@ -839,7 +1165,27 @@ class AppLauncher(QMainWindow):
                 item.favoriteToggled.connect(self.toggle_favorite)
             item.moveRequested.connect(self.move_item_to_group)
             self.list_layout.addWidget(item)
+            self._animate_result_item(item, len(self._entry_animations), restore_shadow=False)
         self.list_layout.addStretch()
+
+    def _animate_result_item(self, widget: QWidget, index: int, restore_shadow: bool) -> None:
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        effect.setOpacity(0.0)
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(180)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.OutCubic)
+
+        def finish():
+            widget.setGraphicsEffect(None)
+            if restore_shadow:
+                apply_shadow(widget, TOKENS.shadows.raised)
+
+        animation.finished.connect(finish)
+        self._entry_animations.append(animation)
+        QTimer.singleShot(index * 30, animation.start)
 
     def launch_top_result(self):
         current_group = self.current_group
@@ -1109,18 +1455,25 @@ class AppLauncher(QMainWindow):
 
     def toggle_visibility(self):
         if self.isVisible():
-            self.hide()
+            self.request_hide()
         else:
             self.show()
             self.activateWindow()
 
+    def request_hide(self) -> None:
+        if self.tray_available and self.tray_icon:
+            self._animate_hide(self._hide_to_tray)
+        else:
+            self._animate_hide(self._final_close)
+
 
 def run_app():
+    QApplication.setAttribute(Qt.AA_UseDesktopOpenGL)
     app = QApplication([])
     app.setStyle("Fusion")
     tray_available = QSystemTrayIcon.isSystemTrayAvailable()
     app.setQuitOnLastWindowClosed(not tray_available)
-    apply_design_system(app)
+    apply_design_system(app, build_theme_tokens("light", QColor(TOKENS.colors.accent)))
 
     server_name = "applauncher_single_instance"
     socket = QLocalSocket()
