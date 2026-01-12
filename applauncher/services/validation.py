@@ -182,6 +182,8 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
     data.setdefault("favorite", False)
     data.setdefault("args", [])
     data.setdefault("source", "manual")
+    data.setdefault("disabled", False)
+    data.setdefault("disabled_reason", "")
     return data, None
 
 
@@ -212,4 +214,6 @@ def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
     data.setdefault("favorite", False)
     data.setdefault("args", [])
     data.setdefault("source", "manual")
+    data.setdefault("disabled", False)
+    data.setdefault("disabled_reason", "")
     return data, None

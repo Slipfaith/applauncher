@@ -122,6 +122,8 @@ class AppRepository:
                         "icon_frame_w",
                         "icon_frame_h",
                         "description",
+                        "disabled",
+                        "disabled_reason",
                     }
                 }
             )
@@ -138,4 +140,6 @@ class AppRepository:
         prepared.setdefault("icon_frame_w", 1.0)
         prepared.setdefault("icon_frame_h", 1.0)
         prepared.setdefault("description", "")
+        prepared.setdefault("disabled", False)
+        prepared.setdefault("disabled_reason", "")
         return prepared

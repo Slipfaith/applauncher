@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
@@ -39,8 +40,11 @@ class LauncherService:
             return str(err)
 
         apps = [app for app in data.get("apps", []) if app.get("source") != "auto"]
+        self._mark_missing_paths(apps)
         self.repository.set_apps(apps)
-        self.macro_repository.set_apps(data.get("macros", []))
+        macros = data.get("macros", [])
+        self._mark_missing_paths(macros)
+        self.macro_repository.set_apps(macros)
         self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
         self.macro_groups = data.get("macro_groups", self.macro_groups) or DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = data.get("view_mode", self.view_mode)
@@ -54,6 +58,31 @@ class LauncherService:
             if macro_group not in self.macro_groups:
                 self.macro_groups.append(macro_group)
         return None
+
+    def _mark_missing_paths(self, items: list[dict]) -> None:
+        for item in items:
+            item_type = item.get("type", "exe")
+            if item_type == "url":
+                item["disabled"] = False
+                item.pop("disabled_reason", None)
+                continue
+            path_value = (item.get("path") or "").strip()
+            if not path_value:
+                item["disabled"] = True
+                item["disabled_reason"] = "Путь не указан"
+                continue
+            is_present = (
+                os.path.isdir(path_value) if item_type == "folder" else os.path.exists(path_value)
+            )
+            if is_present:
+                item["disabled"] = False
+                item.pop("disabled_reason", None)
+            else:
+                item["disabled"] = True
+                if item_type == "folder":
+                    item["disabled_reason"] = f"Папка не найдена:\n{path_value}"
+                else:
+                    item["disabled_reason"] = f"Файл не найден:\n{path_value}"
 
     def build_config_payload(self) -> dict:
         return {
