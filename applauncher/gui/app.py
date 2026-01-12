@@ -117,7 +117,12 @@ class AppLauncher(QMainWindow):
         self.universal_search.resultActivated.connect(self._launch_search_result)
         self.hotkey_service.hotkey_activated.connect(self._on_hotkey_activated)
         self.settings_dialog: SettingsDialog | None = None
-        self.create_tray_icon()
+        self.tray_icon: QSystemTrayIcon | None = None
+        self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+        if self.tray_available:
+            self.create_tray_icon()
+        else:
+            logger.warning("Системный трей недоступен; окно будет закрываться напрямую.")
 
         container = QWidget()
         container.setObjectName("centralContainer")
@@ -297,6 +302,9 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
 
     def create_tray_icon(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
         self.tray_icon = QSystemTrayIcon(self)
 
         pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
@@ -346,14 +354,27 @@ class AppLauncher(QMainWindow):
         self.settings_dialog.activateWindow()
 
     def closeEvent(self, event):
-        event.ignore()
-        self.hide()
-        self.tray_icon.showMessage(
-            "Лаунчер",
-            "Приложение свернуто в трей. Кликните на иконку для возврата.",
-            QSystemTrayIcon.Information,
-            2000,
+        if self.tray_available and self.tray_icon:
+            event.ignore()
+            self.hide()
+            self.tray_icon.showMessage(
+                "Лаунчер",
+                "Приложение свернуто в трей. Кликните на иконку для возврата.",
+                QSystemTrayIcon.Information,
+                2000,
+            )
+            return
+        response = QMessageBox.question(
+            self,
+            "Закрыть приложение",
+            "Системный трей недоступен. Закрыть лаунчер?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
+        if response == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -1097,7 +1118,8 @@ class AppLauncher(QMainWindow):
 def run_app():
     app = QApplication([])
     app.setStyle("Fusion")
-    app.setQuitOnLastWindowClosed(False)
+    tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+    app.setQuitOnLastWindowClosed(not tray_available)
     apply_design_system(app)
 
     server_name = "applauncher_single_instance"
@@ -1109,8 +1131,19 @@ def run_app():
 
     QLocalServer.removeServer(server_name)
     server = QLocalServer()
-    server.listen(server_name)
-    app._single_instance_server = server  # keep reference
+    if server.listen(server_name):
+        app._single_instance_server = server  # keep reference
+    else:
+        logger.warning(
+            "Не удалось запустить single-instance сервер: %s",
+            server.errorString(),
+        )
+        QMessageBox.warning(
+            None,
+            "AppLauncher",
+            "Не удалось запустить single-instance сервер. "
+            "Механизм единственного экземпляра отключен.",
+        )
 
     window = AppLauncher()
     window.show()

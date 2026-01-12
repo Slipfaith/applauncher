@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import subprocess
@@ -10,6 +11,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_url(url: str) -> str:
@@ -70,8 +73,13 @@ def read_lnk_shortcut(file_path: str) -> dict | None:
             check=True,
             capture_output=True,
             text=True,
+            timeout=5,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except subprocess.TimeoutExpired as exc:
+        logger.error("PowerShell превысил время ожидания при чтении .lnk: %s", exc)
+        return None
+    except (OSError, subprocess.CalledProcessError) as exc:
+        logger.error("Не удалось прочитать .lnk через PowerShell: %s", exc)
         return None
     raw_output = result.stdout.strip()
     if not raw_output:

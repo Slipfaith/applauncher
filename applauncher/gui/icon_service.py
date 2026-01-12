@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from .icons import extract_icon_with_fallback
+from ..config import resolve_icons_cache_dir
 from ..repository import AppRepository
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ class IconService(QObject):
             return
         try:
             icon_file = Path(icon_path).resolve()
-            icons_dir = Path("launcher_icons").resolve()
+            icons_dir = Path(resolve_icons_cache_dir()).resolve()
         except Exception:
             return
         if icon_file.exists() and icons_dir in icon_file.parents:
