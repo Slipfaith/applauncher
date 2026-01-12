@@ -5,7 +5,16 @@ import os
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QToolButton,
+    QVBoxLayout,
+)
 
 from ...services.search_service import SearchResult, SearchService
 
@@ -23,9 +32,17 @@ class UniversalSearchWidget(QDialog):
         layout = QVBoxLayout()
         layout.setSpacing(8)
 
+        header_layout = QHBoxLayout()
         header = QLabel("Универсальный поиск")
         header.setProperty("role", "titleText")
-        layout.addWidget(header)
+        header_layout.addWidget(header)
+
+        close_button = QToolButton()
+        close_button.setText("✕")
+        close_button.setToolTip("Закрыть")
+        close_button.clicked.connect(self.hide)
+        header_layout.addWidget(close_button, alignment=Qt.AlignRight)
+        layout.addLayout(header_layout)
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Введите запрос...")
