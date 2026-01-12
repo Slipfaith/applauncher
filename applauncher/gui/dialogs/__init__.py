@@ -15,11 +15,14 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 
-from .styles import TOKENS
-from .tile_image import IconFrameEditor, clamp, default_icon_frame
-from ..repository import DEFAULT_MACRO_GROUPS
+from ..styles import TOKENS
+from ..tile_image import IconFrameEditor, clamp, default_icon_frame
+from ...repository import DEFAULT_MACRO_GROUPS
 
 logger = logging.getLogger(__name__)
+
+from .hotkey_capture_dialog import HotkeyCaptureDialog  # noqa: E402
+from .settings_dialog import SettingsDialog  # noqa: E402
 
 
 class AddAppDialog(QDialog):

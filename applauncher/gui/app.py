@@ -33,14 +33,17 @@ from PySide6.QtGui import (
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
-from .dialogs import AddAppDialog, AddMacroDialog
+from .dialogs import AddAppDialog, AddMacroDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .widgets import AppButton, AppListItem, TitleBar
+from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
+from ..services.clipboard_service import ClipboardService
+from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
 from ..services.launcher_service import LauncherService
+from ..services.search_service import SearchService
 from ..services.validation import (
     extract_shortcut_data,
     validate_app_data,
@@ -106,8 +109,15 @@ class AppLauncher(QMainWindow):
         self._save_timer.setInterval(300)
         self._save_timer.timeout.connect(self._persist_config)
         self.launch_service = LaunchService()
+        self.hotkey_service = HotkeyService(self)
+        self.clipboard_service = ClipboardService(self)
+        self.search_service = SearchService(self.repository, self.macro_repository)
         self.icon_service = IconService(self.repository)
         self.icon_service.iconUpdated.connect(self._on_icon_updated)
+        self.universal_search = UniversalSearchWidget(self.search_service, self)
+        self.universal_search.resultActivated.connect(self._launch_search_result)
+        self.hotkey_service.hotkey_activated.connect(self._on_hotkey_activated)
+        self.settings_dialog: SettingsDialog | None = None
         self.create_tray_icon()
 
         container = QWidget()
@@ -127,11 +137,31 @@ class AppLauncher(QMainWindow):
         self.title_bar = TitleBar(self)
         main_layout.addWidget(self.title_bar)
 
-        content_widget = QWidget()
+        section_container = QWidget()
+        section_layout = QVBoxLayout()
+        section_layout.setContentsMargins(*TOKENS.layout.content_margins)
+        section_layout.setSpacing(TOKENS.layout.content_spacing)
+        section_container.setLayout(section_layout)
+
+        self.section_tabs = QTabBar()
+        self.section_tabs.addTab("Приложения")
+        self.section_tabs.addTab("Макросы")
+        self.section_tabs.addTab("Clipboard")
+        self.section_tabs.setMovable(False)
+        self.section_tabs.setExpanding(False)
+        self.section_tabs.currentChanged.connect(self.on_section_changed)
+        section_layout.addWidget(self.section_tabs)
+
+        main_layout.addWidget(section_container)
+
+        self.content_stack = QStackedWidget()
+        main_layout.addWidget(self.content_stack)
+
+        launcher_widget = QWidget()
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(*TOKENS.layout.content_margins)
         content_layout.setSpacing(TOKENS.layout.content_spacing)
-        content_widget.setLayout(content_layout)
+        launcher_widget.setLayout(content_layout)
 
         controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(
@@ -141,14 +171,6 @@ class AppLauncher(QMainWindow):
             TOKENS.spacing.none,
         )
         controls_layout.setSpacing(TOKENS.layout.content_spacing)
-
-        self.section_tabs = QTabBar()
-        self.section_tabs.addTab("Приложения")
-        self.section_tabs.addTab("Макросы")
-        self.section_tabs.setMovable(False)
-        self.section_tabs.setExpanding(False)
-        self.section_tabs.currentChanged.connect(self.on_section_changed)
-        controls_layout.addWidget(self.section_tabs)
 
         self.tabs = QTabWidget()
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -244,7 +266,9 @@ class AppLauncher(QMainWindow):
         content_layout.addWidget(self.scroll_area)
         content_layout.addStretch()
 
-        main_layout.addWidget(content_widget)
+        self.content_stack.addWidget(launcher_widget)
+        self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
+        self.content_stack.addWidget(self.clipboard_widget)
 
         self.load_state()
         self.setup_shortcuts()
@@ -263,6 +287,9 @@ class AppLauncher(QMainWindow):
         show_action = tray_menu.addAction("🚀 Показать")
         show_action.triggered.connect(self.show)
 
+        settings_action = tray_menu.addAction("⚙️ Настройки")
+        settings_action.triggered.connect(self.show_settings)
+
         tray_menu.addSeparator()
 
         quit_action = tray_menu.addAction("❌ Выход")
@@ -279,6 +306,16 @@ class AppLauncher(QMainWindow):
             else:
                 self.show()
                 self.activateWindow()
+
+    def show_settings(self):
+        if self.settings_dialog is None:
+            self.settings_dialog = SettingsDialog(self.service.global_hotkey, self)
+            self.settings_dialog.hotkey_widget.hotkeyChanged.connect(self.update_hotkey)
+        else:
+            self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
+        self.settings_dialog.show()
+        self.settings_dialog.raise_()
+        self.settings_dialog.activateWindow()
 
     def closeEvent(self, event):
         event.ignore()
@@ -622,6 +659,8 @@ class AppLauncher(QMainWindow):
                 QMessageBox.warning(self, "Ошибка", error)
 
     def refresh_view(self):
+        if self.is_clipboard_section:
+            return
         current_group = self.current_group
         query = self.search_input.text()
         version = self.service.macro_version if self.is_macro_section else self.service.version
@@ -722,10 +761,14 @@ class AppLauncher(QMainWindow):
 
     @property
     def current_group(self) -> str:
+        if self.is_clipboard_section:
+            return DEFAULT_GROUP
         return self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else DEFAULT_GROUP
 
     @property
     def groups(self) -> list[str]:
+        if self.is_clipboard_section:
+            return self.service.groups
         return self.service.macro_groups if self.is_macro_section else self.service.groups
 
     @groups.setter
@@ -759,6 +802,10 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
 
     def on_section_changed(self, _index: int):
+        if self.is_clipboard_section:
+            self.content_stack.setCurrentWidget(self.clipboard_widget)
+            return
+        self.content_stack.setCurrentIndex(0)
         self.setup_tabs()
         self.sync_section_controls()
         self._last_render_state = None
@@ -776,6 +823,8 @@ class AppLauncher(QMainWindow):
         self._sync_view_toggle()
 
     def setup_tabs(self):
+        if self.is_clipboard_section:
+            return
         self.tabs.clear()
         for group in self.groups:
             self.tabs.addTab(QWidget(), group)
@@ -856,14 +905,58 @@ class AppLauncher(QMainWindow):
         # FlowLayout automatically handles resizing
 
     def setup_shortcuts(self):
-        shortcut = QShortcut(QKeySequence("Ctrl+Alt+Space"), self)
+        shortcut = QShortcut(QKeySequence(self.service.global_hotkey), self)
         shortcut.setContext(Qt.ApplicationShortcut)
-        shortcut.activated.connect(self.toggle_visibility)
+        shortcut.activated.connect(self._on_hotkey_activated)
         self.toggle_shortcut = shortcut
+        self._register_hotkey()
+
+    def _register_hotkey(self):
+        if not self.hotkey_service.register_hotkey(self.service.global_hotkey):
+            logger.warning("Глобальный хоткей не зарегистрирован")
+
+    def update_hotkey(self, hotkey: str) -> None:
+        if not hotkey:
+            return
+        self.service.global_hotkey = hotkey
+        if self.toggle_shortcut:
+            self.toggle_shortcut.setKey(QKeySequence(hotkey))
+        self._register_hotkey()
+        self.schedule_save()
+
+    def _on_hotkey_activated(self):
+        self.show()
+        self.activateWindow()
+        self.universal_search.open_search()
+
+    def _launch_search_result(self, result):
+        if result.item_type == "macro":
+            success, error = self.launch_service.launch(result.payload)
+            if not success:
+                if error:
+                    QMessageBox.warning(self, "Ошибка", error)
+                return
+            updated = self.service.increment_macro_usage(result.payload["path"]) or result.payload
+            result.payload.update(updated)
+        else:
+            success, error = self.launch_service.launch(result.payload)
+            if not success:
+                if error:
+                    QMessageBox.warning(self, "Ошибка", error)
+                return
+            updated = self.service.increment_usage(result.payload["path"]) or result.payload
+            result.payload.update(updated)
+        self.universal_search.hide()
+        self.schedule_save()
+        self.refresh_view()
 
     @property
     def is_macro_section(self) -> bool:
         return self.section_tabs.currentIndex() == 1
+
+    @property
+    def is_clipboard_section(self) -> bool:
+        return self.section_tabs.currentIndex() == 2
 
     def edit_item(self, item_data: dict):
         if self.is_macro_section:
