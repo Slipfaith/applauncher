@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QMimeData
+from PySide6.QtCore import Qt, QSize, Signal, QMimeData, QEasingCurve, QPropertyAnimation, QRect
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from ..styles import TOKENS, apply_shadow
@@ -53,6 +53,8 @@ class AppButton(QPushButton):
         self.default_group = default_group
         self.show_favorite = show_favorite
         self._drag_start_pos = None
+        self._hover_animation: QPropertyAnimation | None = None
+        self._base_geometry = None
         self.setProperty("role", "appTile")
 
         prefix = "★ " if self.show_favorite and app_data.get("favorite") else ""
@@ -203,6 +205,39 @@ class AppButton(QPushButton):
         drag.setPixmap(self.grab())
         drag.exec(Qt.MoveAction)
 
+    def enterEvent(self, event):
+        self._animate_hover(scale_up=True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._animate_hover(scale_up=False)
+        super().leaveEvent(event)
+
+    def _animate_hover(self, scale_up: bool) -> None:
+        if self._base_geometry is None:
+            self._base_geometry = self.geometry()
+        start_rect = self.geometry()
+        target_rect = self._scaled_geometry(self._base_geometry, 1.02 if scale_up else 1.0)
+        if self._hover_animation:
+            self._hover_animation.stop()
+        self._hover_animation = QPropertyAnimation(self, b"geometry")
+        self._hover_animation.setDuration(150)
+        self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._hover_animation.setStartValue(start_rect)
+        self._hover_animation.setEndValue(target_rect)
+        self._hover_animation.start()
+
+    @staticmethod
+    def _scaled_geometry(rect, scale: float):
+        center = rect.center()
+        new_width = int(rect.width() * scale)
+        new_height = int(rect.height() * scale)
+        new_rect = QRect(rect)
+        new_rect.setWidth(new_width)
+        new_rect.setHeight(new_height)
+        new_rect.moveCenter(center)
+        return new_rect
+
 
 class AppListItem(QWidget):
     """Compact list entry for list mode."""
@@ -232,6 +267,8 @@ class AppListItem(QWidget):
         self.show_favorite = show_favorite
         self._drag_start_pos = None
         self._dragging = False
+        self._hover_animation: QPropertyAnimation | None = None
+        self._base_geometry = None
         self.setProperty("role", "listItem")
 
         from PySide6.QtWidgets import QHBoxLayout
@@ -320,6 +357,39 @@ class AppListItem(QWidget):
         if event.button() == Qt.LeftButton and not self._dragging:
             self.activated.emit(self.app_data)
         super().mouseReleaseEvent(event)
+
+    def enterEvent(self, event):
+        self._animate_hover(scale_up=True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._animate_hover(scale_up=False)
+        super().leaveEvent(event)
+
+    def _animate_hover(self, scale_up: bool) -> None:
+        if self._base_geometry is None:
+            self._base_geometry = self.geometry()
+        start_rect = self.geometry()
+        target_rect = self._scaled_geometry(self._base_geometry, 1.02 if scale_up else 1.0)
+        if self._hover_animation:
+            self._hover_animation.stop()
+        self._hover_animation = QPropertyAnimation(self, b"geometry")
+        self._hover_animation.setDuration(150)
+        self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._hover_animation.setStartValue(start_rect)
+        self._hover_animation.setEndValue(target_rect)
+        self._hover_animation.start()
+
+    @staticmethod
+    def _scaled_geometry(rect, scale: float):
+        center = rect.center()
+        new_width = int(rect.width() * scale)
+        new_height = int(rect.height() * scale)
+        new_rect = QRect(rect)
+        new_rect.setWidth(new_width)
+        new_rect.setHeight(new_height)
+        new_rect.moveCenter(center)
+        return new_rect
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -418,16 +488,10 @@ class TitleBar(QWidget):
         self.start = None
 
     def close_to_tray(self):
-        if not getattr(self.parent, "tray_available", False) or not self.parent.tray_icon:
-            self.parent.close()
+        if hasattr(self.parent, "request_hide"):
+            self.parent.request_hide()
             return
-        self.parent.hide()
-        self.parent.tray_icon.showMessage(
-            "Лаунчер",
-            "Приложение свернуто в трей",
-            QSystemTrayIcon.Information,
-            2000,
-        )
+        self.parent.close()
 
     def toggle_maximize(self):
         if self.parent.isMaximized():

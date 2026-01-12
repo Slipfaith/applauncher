@@ -20,7 +20,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macro_groups": [".vbs", ".vba", ".py"],
     "macro_view_mode": "grid",
     "global_hotkey": "Ctrl+Alt+Space",
-    "window_opacity": 0.75,
+    "window_opacity": 1.0,
 }
 
 
