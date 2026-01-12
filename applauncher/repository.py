@@ -65,14 +65,18 @@ class AppRepository:
             filtered = [
                 app
                 for app in self.apps
-                if text in app["name"].lower() or text in app["path"].lower()
+                if text in app["name"].lower()
+                or text in self._resolve_search_path(app).lower()
             ]
         else:
             filtered = [
                 app
                 for app in self.apps
                 if (app.get("group", self.default_group) == group)
-                and (text in app["name"].lower() or text in app["path"].lower())
+                and (
+                    text in app["name"].lower()
+                    or text in self._resolve_search_path(app).lower()
+                )
             ]
         return sorted(
             filtered,
@@ -116,6 +120,7 @@ class AppRepository:
                         "favorite",
                         "args",
                         "custom_icon",
+                        "raw_path",
                         "source",
                         "icon_frame_x",
                         "icon_frame_y",
@@ -136,6 +141,7 @@ class AppRepository:
         prepared.setdefault("favorite", False)
         prepared.setdefault("args", [])
         prepared.setdefault("custom_icon", False)
+        prepared.setdefault("raw_path", "")
         prepared.setdefault("source", "manual")
         prepared.setdefault("icon_frame_x", 0.0)
         prepared.setdefault("icon_frame_y", 0.0)
@@ -147,3 +153,8 @@ class AppRepository:
         prepared.setdefault("invalid", False)
         prepared.setdefault("invalid_reason", "")
         return prepared
+
+    def _resolve_search_path(self, app: dict) -> str:
+        if app.get("type") == "url":
+            return app.get("raw_path") or app.get("path") or ""
+        return app.get("path") or ""

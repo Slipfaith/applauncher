@@ -160,17 +160,20 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
         args = [args]
     data["args"] = args
     if item_type == "url":
+        data["raw_path"] = path_value
         normalized = normalize_url(path_value)
         if not normalized:
             return None, "Введите корректный URL (пример: https://example.com или steam://rungameid/550)"
         data["path"] = normalized
     elif item_type == "folder":
+        data["raw_path"] = ""
         if not path_value:
             return None, "Укажите путь к папке"
         if not os.path.isdir(path_value):
             return None, f"Папка не найдена:\n{path_value}"
         data["type"] = "folder"
     else:
+        data["raw_path"] = ""
         if not path_value:
             return None, "Укажите путь к исполняемому файлу"
         if not os.path.exists(path_value):
@@ -230,6 +233,8 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
     if not error and validated:
         validated["invalid"] = False
         validated["invalid_reason"] = ""
+        if validated.get("type") == "url":
+            validated.setdefault("raw_path", data.get("raw_path") or validated.get("path", ""))
         return validated
     fallback = dict(data)
     name = (fallback.get("name") or "").strip()
@@ -247,6 +252,8 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
     fallback.setdefault("usage_count", 0)
     fallback.setdefault("favorite", False)
     fallback.setdefault("source", "manual")
+    if fallback.get("type") == "url":
+        fallback.setdefault("raw_path", fallback.get("raw_path") or path_value)
     fallback["invalid"] = True
     fallback["invalid_reason"] = error or "Некорректные данные"
     fallback["disabled"] = True

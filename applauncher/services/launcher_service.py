@@ -158,6 +158,10 @@ class LauncherService:
     def clear_apps(self) -> None:
         self.repository.clear_apps()
 
+    def clear_links(self) -> None:
+        remaining = [app for app in self.repository.apps if app.get("type") != "url"]
+        self.repository.set_apps(remaining)
+
     def clear_macros(self) -> None:
         self.macro_repository.clear_apps()
 

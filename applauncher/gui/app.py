@@ -163,6 +163,7 @@ class AppLauncher(QMainWindow):
         self.section_tabs = QTabBar()
         self.section_tabs.addTab("Приложения")
         self.section_tabs.addTab("Макросы")
+        self.section_tabs.addTab("Ссылки")
         self.section_tabs.addTab("Clipboard")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
@@ -273,15 +274,18 @@ class AppLauncher(QMainWindow):
         self.list_container.setLayout(self.list_layout)
 
         self.view_stack = QStackedWidget()
+        self.view_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.view_stack.addWidget(self.grid_widget)
         self.view_stack.addWidget(self.list_container)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll_area.setWidget(self.view_stack)
 
         content_layout.addWidget(self.scroll_area)
-        content_layout.addStretch()
 
         self.content_stack.addWidget(launcher_widget)
         self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
@@ -447,12 +451,16 @@ class AppLauncher(QMainWindow):
     def add_item(self):
         if self.is_macro_section:
             self.add_macro()
+        elif self.is_links_section:
+            self.add_link()
         else:
             self.add_app()
 
     def clear_all_items(self):
         if self.is_macro_section:
             self.clear_all_macros()
+        elif self.is_links_section:
+            self.clear_all_links()
         else:
             self.clear_all_apps()
 
@@ -474,6 +482,25 @@ class AppLauncher(QMainWindow):
             self.schedule_save()
             self.refresh_view()
             logger.info("Добавлен элемент: %s", data["name"])
+
+    def add_link(self):
+        dialog = AddAppDialog(self, groups=self.groups, default_type="url")
+        if dialog.exec():
+            data, error = validate_app_data(dialog.get_data())
+            if error:
+                QMessageBox.warning(self, "Ошибка", error)
+                return
+            if not data:
+                return
+            data["custom_icon"] = bool(data.get("icon_path"))
+            if data.get("group") not in self.groups:
+                self.groups.append(data.get("group", DEFAULT_GROUP))
+                self.setup_tabs()
+            created = self.service.add_app(data)
+            self.icon_service.start_extraction(created)
+            self.schedule_save()
+            self.refresh_view()
+            logger.info("Добавлена ссылка: %s", data["name"])
 
     def edit_app(self, app_data: dict):
         for app in self.repository.apps:
@@ -600,6 +627,27 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
         logger.info("Удалены все макросы")
 
+    def clear_all_links(self):
+        links = [app for app in self.repository.apps if app.get("type") == "url"]
+        if not links:
+            QMessageBox.information(self, "Удалить все", "Список ссылок уже пуст.")
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Удалить все",
+            "Удалить все ссылки из лаунчера?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        for app in links:
+            self.icon_service.cleanup_icon_cache(app.get("icon_path"))
+        self.service.clear_links()
+        self.schedule_save()
+        self.refresh_view()
+        logger.info("Удалены все ссылки")
+
     def toggle_favorite(self, app_data: dict):
         if not self.service.toggle_favorite(app_data["path"]):
             return
@@ -682,6 +730,13 @@ class AppLauncher(QMainWindow):
             else:
                 QMessageBox.warning(self, "Ошибка", error)
 
+    def copy_link(self, app_data: dict):
+        link_value = app_data.get("raw_path") or app_data.get("path") or ""
+        if not link_value:
+            QMessageBox.information(self, "Информация", "Ссылка не указана.")
+            return
+        QApplication.clipboard().setText(link_value)
+
     def refresh_view(self):
         if self.is_clipboard_section:
             return
@@ -695,6 +750,12 @@ class AppLauncher(QMainWindow):
 
         if self.is_macro_section:
             filtered = self.service.filtered_macros(query, current_group)
+        elif self.is_links_section:
+            filtered = [
+                app
+                for app in self.service.filtered_apps(query, current_group)
+                if app.get("type") == "url"
+            ]
         else:
             filtered = self.service.filtered_apps(query, current_group)
         self._sync_view_toggle()
@@ -726,6 +787,7 @@ class AppLauncher(QMainWindow):
             btn.editRequested.connect(self.edit_item)
             btn.deleteRequested.connect(self.delete_item)
             btn.openLocationRequested.connect(self.open_location)
+            btn.copyLinkRequested.connect(self.copy_link)
             if not self.is_macro_section:
                 btn.favoriteToggled.connect(self.toggle_favorite)
             btn.moveRequested.connect(self.move_item_to_group)
@@ -751,6 +813,7 @@ class AppLauncher(QMainWindow):
             item.editRequested.connect(self.edit_item)
             item.deleteRequested.connect(self.delete_item)
             item.openLocationRequested.connect(self.open_location)
+            item.copyLinkRequested.connect(self.copy_link)
             if not self.is_macro_section:
                 item.favoriteToggled.connect(self.toggle_favorite)
             item.moveRequested.connect(self.move_item_to_group)
@@ -761,6 +824,12 @@ class AppLauncher(QMainWindow):
         current_group = self.current_group
         if self.is_macro_section:
             filtered = self.service.filtered_macros(self.search_input.text(), current_group)
+        elif self.is_links_section:
+            filtered = [
+                app
+                for app in self.service.filtered_apps(self.search_input.text(), current_group)
+                if app.get("type") == "url"
+            ]
         else:
             filtered = self.service.filtered_apps(self.search_input.text(), current_group)
         if not filtered:
@@ -810,7 +879,11 @@ class AppLauncher(QMainWindow):
 
     @property
     def current_section(self) -> str:
-        return "macros" if self.is_macro_section else "apps"
+        if self.is_macro_section:
+            return "macros"
+        if self.is_links_section:
+            return "links"
+        return "apps"
 
     @property
     def default_group(self) -> str | None:
@@ -846,6 +919,10 @@ class AppLauncher(QMainWindow):
             self.search_input.setPlaceholderText("Поиск макросов...")
             self.add_btn.setText("Добавить макрос")
             self.clear_btn.setText("Удалить все макросы")
+        elif self.is_links_section:
+            self.search_input.setPlaceholderText("Поиск ссылок...")
+            self.add_btn.setText("Добавить ссылку")
+            self.clear_btn.setText("Удалить все ссылки")
         else:
             self.search_input.setPlaceholderText("Поиск приложений...")
             self.add_btn.setText("Добавить приложение")
@@ -984,8 +1061,12 @@ class AppLauncher(QMainWindow):
         return self.section_tabs.currentIndex() == 1
 
     @property
-    def is_clipboard_section(self) -> bool:
+    def is_links_section(self) -> bool:
         return self.section_tabs.currentIndex() == 2
+
+    @property
+    def is_clipboard_section(self) -> bool:
+        return self.section_tabs.currentIndex() == 3
 
     def edit_item(self, item_data: dict):
         if self.is_macro_section:
