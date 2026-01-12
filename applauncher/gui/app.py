@@ -95,7 +95,6 @@ class AppLauncher(QMainWindow):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setWindowOpacity(0.75)
         self.setObjectName("mainWindow")
         self.setMinimumSize(*TOKENS.sizes.window_min)
         self.setAcceptDrops(True)
@@ -136,6 +135,24 @@ class AppLauncher(QMainWindow):
 
         self.title_bar = TitleBar(self)
         main_layout.addWidget(self.title_bar)
+
+        settings_bar = QWidget()
+        settings_layout = QHBoxLayout()
+        settings_layout.setContentsMargins(
+            TOKENS.layout.content_margins[0],
+            TOKENS.spacing.xs,
+            TOKENS.layout.content_margins[2],
+            TOKENS.spacing.xs,
+        )
+        settings_layout.setSpacing(TOKENS.spacing.sm)
+        settings_bar.setLayout(settings_layout)
+
+        settings_button = QPushButton("⚙️ Настройки")
+        settings_button.setProperty("variant", "secondary")
+        settings_button.clicked.connect(self.show_settings)
+        settings_layout.addStretch()
+        settings_layout.addWidget(settings_button)
+        main_layout.addWidget(settings_bar)
 
         section_container = QWidget()
         section_layout = QVBoxLayout()
@@ -271,6 +288,7 @@ class AppLauncher(QMainWindow):
         self.content_stack.addWidget(self.clipboard_widget)
 
         self.load_state()
+        self.setWindowOpacity(self.service.window_opacity)
         self.setup_shortcuts()
         self.refresh_view()
 
@@ -309,10 +327,16 @@ class AppLauncher(QMainWindow):
 
     def show_settings(self):
         if self.settings_dialog is None:
-            self.settings_dialog = SettingsDialog(self.service.global_hotkey, self)
+            self.settings_dialog = SettingsDialog(
+                self.service.global_hotkey,
+                self.service.window_opacity,
+                self,
+            )
             self.settings_dialog.hotkey_widget.hotkeyChanged.connect(self.update_hotkey)
+            self.settings_dialog.opacityChanged.connect(self.update_opacity)
         else:
             self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
+            self.settings_dialog.set_opacity(self.service.window_opacity)
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
@@ -747,9 +771,15 @@ class AppLauncher(QMainWindow):
         error = self.service.load_state()
         if error:
             QMessageBox.warning(self, "Ошибка конфигурации", error)
+        self.setWindowOpacity(self.service.window_opacity)
         self.setup_tabs()
         self.sync_section_controls()
         self._last_render_state = None
+
+    def update_opacity(self, value: float) -> None:
+        self.service.window_opacity = value
+        self.setWindowOpacity(value)
+        self.schedule_save()
 
     def schedule_save(self):
         self._save_timer.start()

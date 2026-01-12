@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QKeySequence, QShortcut
 
 from ...services.clipboard_service import ClipboardService
 
@@ -47,6 +47,9 @@ class ClipboardHistoryWidget(QWidget):
         self.list_widget.itemClicked.connect(self._copy_item)
         layout.addWidget(self.list_widget)
 
+        self.copy_shortcut = QShortcut(QKeySequence.Copy, self.list_widget)
+        self.copy_shortcut.activated.connect(self._copy_selected)
+
         self.setLayout(layout)
 
         self.clipboard_service.history_changed.connect(self._refresh_list)
@@ -71,7 +74,12 @@ class ClipboardHistoryWidget(QWidget):
     def _copy_item(self, item: QListWidgetItem) -> None:
         text = item.data(Qt.UserRole)
         if text:
-            QApplication.clipboard().setText(text)
+            self.clipboard_service.copy_to_clipboard(text)
+
+    def _copy_selected(self) -> None:
+        item = self.list_widget.currentItem()
+        if item:
+            self._copy_item(item)
 
     def _clear_history(self) -> None:
         self.clipboard_service.clear_history()
