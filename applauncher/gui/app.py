@@ -92,6 +92,7 @@ class AppLauncher(QMainWindow):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWindowOpacity(0.75)
         self.setObjectName("mainWindow")
         self.setMinimumSize(*TOKENS.sizes.window_min)
         self.setAcceptDrops(True)
