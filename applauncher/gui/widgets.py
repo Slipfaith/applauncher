@@ -38,15 +38,19 @@ class AppButton(QPushButton):
         parent=None,
         available_groups: list[str] | None = None,
         current_group: str | None = None,
+        default_group: str | None = DEFAULT_GROUP,
+        show_favorite: bool = True,
     ):
         super().__init__(parent)
         self.app_data = app_data
         self.available_groups = available_groups or []
         self.current_group = current_group or app_data.get("group")
+        self.default_group = default_group
+        self.show_favorite = show_favorite
         self._drag_start_pos = None
         self.setProperty("role", "appTile")
 
-        prefix = "★ " if app_data.get("favorite") else ""
+        prefix = "★ " if self.show_favorite and app_data.get("favorite") else ""
         display_name = f"{prefix}{app_data['name']}"
         app_type = app_data.get("type", "exe")
         display_label = display_name
@@ -132,12 +136,14 @@ class AppButton(QPushButton):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
-        favorite_action = menu.addAction(
-            "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
-        )
+        favorite_action = None
+        if self.show_favorite:
+            favorite_action = menu.addAction(
+                "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
+            )
         delete_action = None
         trash_action = None
-        if self.current_group == DEFAULT_GROUP:
+        if self.default_group and self.current_group == self.default_group:
             trash_action = menu.addAction("🗑️ В мусор")
         else:
             delete_action = menu.addAction("🗑️ Удалить")
@@ -161,7 +167,7 @@ class AppButton(QPushButton):
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
-        elif action == favorite_action:
+        elif favorite_action and action == favorite_action:
             self.favoriteToggled.emit(self.app_data)
         elif action in move_action_map:
             self.moveRequested.emit(self.app_data, move_action_map[action])
@@ -202,11 +208,15 @@ class AppListItem(QWidget):
         parent=None,
         available_groups: list[str] | None = None,
         current_group: str | None = None,
+        default_group: str | None = DEFAULT_GROUP,
+        show_favorite: bool = True,
     ):
         super().__init__(parent)
         self.app_data = app_data
         self.available_groups = available_groups or []
         self.current_group = current_group or app_data.get("group")
+        self.default_group = default_group
+        self.show_favorite = show_favorite
         self._drag_start_pos = None
         self._dragging = False
         self.setProperty("role", "listItem")
@@ -237,7 +247,7 @@ class AppListItem(QWidget):
         layout.addWidget(icon_label)
 
         text_layout = QVBoxLayout()
-        prefix = "★ " if app_data.get("favorite") else ""
+        prefix = "★ " if self.show_favorite and app_data.get("favorite") else ""
         app_type = app_data.get("type", "exe")
         if app_type == "url":
             if app_data.get("path", "").lower().startswith("steam://"):
@@ -299,12 +309,14 @@ class AppListItem(QWidget):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
-        favorite_action = menu.addAction(
-            "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
-        )
+        favorite_action = None
+        if self.show_favorite:
+            favorite_action = menu.addAction(
+                "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
+            )
         delete_action = None
         trash_action = None
-        if self.current_group == DEFAULT_GROUP:
+        if self.default_group and self.current_group == self.default_group:
             trash_action = menu.addAction("🗑️ В мусор")
         else:
             delete_action = menu.addAction("🗑️ Удалить")
@@ -328,7 +340,7 @@ class AppListItem(QWidget):
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
-        elif action == favorite_action:
+        elif favorite_action and action == favorite_action:
             self.favoriteToggled.emit(self.app_data)
         elif action in move_action_map:
             self.moveRequested.emit(self.app_data, move_action_map[action])

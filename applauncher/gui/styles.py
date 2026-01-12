@@ -227,7 +227,7 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-color: {colors.border};
     }}
 
-    QTabBar::tab:last {{
+    QTabBar#groupTabs::tab:last {{
         background: {colors.accent};
         color: {colors.surface};
         border-color: {colors.accent};
@@ -236,7 +236,7 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         padding: {spacing.xs}px {spacing.sm}px;
     }}
 
-    QTabBar::tab:last:hover {{
+    QTabBar#groupTabs::tab:last:hover {{
         background: {colors.accent_hover};
         border-color: {colors.accent_hover};
     }}

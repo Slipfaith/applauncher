@@ -16,12 +16,19 @@ class LauncherService:
     def __init__(self, config_file: str = "launcher_config.json", repository: Optional[AppRepository] = None):
         self.config_file = config_file
         self.repository = repository or AppRepository()
+        self.macro_repository = AppRepository(default_group=DEFAULT_GROUP, all_group=False)
         self.groups: list[str] = [DEFAULT_GROUP]
+        self.macro_groups: list[str] = DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = DEFAULT_CONFIG["view_mode"]
+        self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
 
     @property
     def version(self) -> int:
         return self.repository.version
+
+    @property
+    def macro_version(self) -> int:
+        return self.macro_repository.version
 
     def load_state(self) -> Optional[str]:
         try:
@@ -33,12 +40,19 @@ class LauncherService:
 
         apps = [app for app in data.get("apps", []) if app.get("source") != "auto"]
         self.repository.set_apps(apps)
+        self.macro_repository.set_apps(data.get("macros", []))
         self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
+        self.macro_groups = data.get("macro_groups", self.macro_groups) or DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = data.get("view_mode", self.view_mode)
+        self.macro_view_mode = data.get("macro_view_mode", self.macro_view_mode)
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
             if group_name not in self.groups:
                 self.groups.append(group_name)
+        for macro in self.macro_repository.apps:
+            macro_group = macro.get("group", DEFAULT_GROUP)
+            if macro_group not in self.macro_groups:
+                self.macro_groups.append(macro_group)
         return None
 
     def build_config_payload(self) -> dict:
@@ -46,6 +60,9 @@ class LauncherService:
             "apps": self.repository.apps,
             "groups": self.groups or [DEFAULT_GROUP],
             "view_mode": self.view_mode,
+            "macros": self.macro_repository.apps,
+            "macro_groups": self.macro_groups or DEFAULT_CONFIG["macro_groups"].copy(),
+            "macro_view_mode": self.macro_view_mode,
         }
 
     def persist_config(self) -> Optional[str]:
@@ -66,15 +83,33 @@ class LauncherService:
         self.ensure_group(app_data.get("group", DEFAULT_GROUP))
         return self.repository.add_app(app_data)
 
+    def ensure_macro_group(self, group: str) -> None:
+        if group and group not in self.macro_groups:
+            self.macro_groups.append(group)
+
+    def add_macro(self, macro_data: dict) -> dict:
+        self.ensure_macro_group(macro_data.get("group", DEFAULT_GROUP))
+        return self.macro_repository.add_app(macro_data)
+
     def update_app(self, original_path: str, updated_data: dict) -> Optional[dict]:
         self.ensure_group(updated_data.get("group", DEFAULT_GROUP))
         return self.repository.update_app(original_path, updated_data)
 
+    def update_macro(self, original_path: str, updated_data: dict) -> Optional[dict]:
+        self.ensure_macro_group(updated_data.get("group", DEFAULT_GROUP))
+        return self.macro_repository.update_app(original_path, updated_data)
+
     def delete_app(self, app_path: str) -> bool:
         return self.repository.delete_app(app_path)
 
+    def delete_macro(self, macro_path: str) -> bool:
+        return self.macro_repository.delete_app(macro_path)
+
     def clear_apps(self) -> None:
         self.repository.clear_apps()
+
+    def clear_macros(self) -> None:
+        self.macro_repository.clear_apps()
 
     def toggle_favorite(self, app_path: str) -> Optional[dict]:
         target = next((item for item in self.repository.apps if item["path"] == app_path), None)
@@ -83,6 +118,14 @@ class LauncherService:
         updated = dict(target)
         updated["favorite"] = not target.get("favorite", False)
         return self.repository.update_app(target["path"], updated)
+
+    def toggle_macro_favorite(self, macro_path: str) -> Optional[dict]:
+        target = next((item for item in self.macro_repository.apps if item["path"] == macro_path), None)
+        if not target:
+            return None
+        updated = dict(target)
+        updated["favorite"] = not target.get("favorite", False)
+        return self.macro_repository.update_app(target["path"], updated)
 
     def move_app_to_group(self, app_path: str, group: str) -> Optional[dict]:
         if group not in self.groups:
@@ -93,6 +136,16 @@ class LauncherService:
         updated = dict(target)
         updated["group"] = group
         return self.repository.update_app(target["path"], updated)
+
+    def move_macro_to_group(self, macro_path: str, group: str) -> Optional[dict]:
+        if group not in self.macro_groups:
+            return None
+        target = next((item for item in self.macro_repository.apps if item["path"] == macro_path), None)
+        if not target:
+            return None
+        updated = dict(target)
+        updated["group"] = group
+        return self.macro_repository.update_app(target["path"], updated)
 
     def remove_app_from_group(self, app_path: str, group: str) -> Optional[dict]:
         if group == DEFAULT_GROUP:
@@ -106,6 +159,18 @@ class LauncherService:
         updated["group"] = DEFAULT_GROUP
         return self.repository.update_app(target["path"], updated)
 
+    def remove_macro_from_group(self, macro_path: str, group: str) -> Optional[dict]:
+        target = next((item for item in self.macro_repository.apps if item["path"] == macro_path), None)
+        if not target:
+            return None
+        if target.get("group", DEFAULT_GROUP) != group:
+            return None
+        if DEFAULT_GROUP not in self.macro_groups:
+            self.macro_groups.insert(0, DEFAULT_GROUP)
+        updated = dict(target)
+        updated["group"] = DEFAULT_GROUP
+        return self.macro_repository.update_app(target["path"], updated)
+
     def delete_group(self, group: str) -> None:
         if group == DEFAULT_GROUP or group not in self.groups:
             return
@@ -116,8 +181,26 @@ class LauncherService:
                 self.repository.update_app(app["path"], updated)
         self.groups = [name for name in self.groups if name != group]
 
+    def delete_macro_group(self, group: str) -> None:
+        if group not in self.macro_groups:
+            return
+        for macro in list(self.macro_repository.apps):
+            if macro.get("group", DEFAULT_GROUP) == group:
+                updated = dict(macro)
+                updated["group"] = DEFAULT_GROUP
+                self.macro_repository.update_app(macro["path"], updated)
+        if DEFAULT_GROUP not in self.macro_groups:
+            self.macro_groups.insert(0, DEFAULT_GROUP)
+        self.macro_groups = [name for name in self.macro_groups if name != group]
+
     def filtered_apps(self, query: str, group: str) -> list[dict]:
         return self.repository.get_filtered_apps(query, group)
 
+    def filtered_macros(self, query: str, group: str) -> list[dict]:
+        return self.macro_repository.get_filtered_apps(query, group)
+
     def increment_usage(self, app_path: str) -> Optional[dict]:
         return self.repository.increment_usage(app_path)
+
+    def increment_macro_usage(self, macro_path: str) -> Optional[dict]:
+        return self.macro_repository.increment_usage(macro_path)

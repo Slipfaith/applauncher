@@ -13,6 +13,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "apps": [],
     "groups": ["Общее"],
     "view_mode": "grid",
+    "macros": [],
+    "macro_groups": [".vbs", ".vba", ".py"],
+    "macro_view_mode": "grid",
 }
 
 
@@ -26,11 +29,24 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "apps": data or [],
             "groups": DEFAULT_CONFIG["groups"].copy(),
             "view_mode": DEFAULT_CONFIG["view_mode"],
+            "macros": [],
+            "macro_groups": DEFAULT_CONFIG["macro_groups"].copy(),
+            "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
         }
     apps = data.get("apps", [])
     groups = data.get("groups", DEFAULT_CONFIG["groups"].copy())
     view_mode = data.get("view_mode", DEFAULT_CONFIG["view_mode"])
-    return {"apps": apps, "groups": groups, "view_mode": view_mode}
+    macros = data.get("macros", [])
+    macro_groups = data.get("macro_groups", DEFAULT_CONFIG["macro_groups"].copy())
+    macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
+    return {
+        "apps": apps,
+        "groups": groups,
+        "view_mode": view_mode,
+        "macros": macros,
+        "macro_groups": macro_groups,
+        "macro_view_mode": macro_view_mode,
+    }
 
 
 def load_config(path: str) -> Dict[str, Any]:
