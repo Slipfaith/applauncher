@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..repository import DEFAULT_GROUP
+from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
 
 
 def normalize_url(url: str) -> str:
@@ -178,6 +178,36 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
         suffix = Path(path_value).suffix.lower()
         data["type"] = "lnk" if suffix == ".lnk" else "exe"
     data.setdefault("group", DEFAULT_GROUP)
+    data.setdefault("usage_count", 0)
+    data.setdefault("favorite", False)
+    data.setdefault("args", [])
+    data.setdefault("source", "manual")
+    return data, None
+
+
+def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
+    if not data:
+        return None, None
+    name = (data.get("name") or "").strip()
+    if not name:
+        return None, "Укажите название макроса"
+    path_value = (data.get("path") or "").strip()
+    if not path_value:
+        return None, "Укажите путь к файлу макроса"
+    if not os.path.exists(path_value):
+        return None, f"Файл не найден:\n{path_value}"
+    suffix = Path(path_value).suffix.lower()
+    if suffix not in set(DEFAULT_MACRO_GROUPS):
+        return None, "Выберите файл макроса с расширением .vbs, .vba или .py"
+    selected_group = (data.get("group") or "").strip().lower()
+    if selected_group and selected_group != suffix:
+        return None, "Тип макроса не совпадает с расширением выбранного файла"
+    description = (data.get("description") or "").strip()
+    data["name"] = name
+    data["path"] = path_value
+    data["description"] = description
+    data["type"] = suffix.lstrip(".")
+    data["group"] = suffix
     data.setdefault("usage_count", 0)
     data.setdefault("favorite", False)
     data.setdefault("args", [])

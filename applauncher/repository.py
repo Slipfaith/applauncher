@@ -4,14 +4,22 @@ from __future__ import annotations
 from typing import Iterable, List, Optional
 
 DEFAULT_GROUP = "Общее"
+DEFAULT_MACRO_GROUPS = [".vbs", ".vba", ".py"]
 
 
 class AppRepository:
     """Stores and filters applications without UI dependencies."""
 
-    def __init__(self, apps: Optional[Iterable[dict]] = None):
+    def __init__(
+        self,
+        apps: Optional[Iterable[dict]] = None,
+        default_group: str = DEFAULT_GROUP,
+        all_group: bool = True,
+    ):
         self.apps: List[dict] = []
         self._version = 0
+        self.default_group = default_group
+        self.all_group = all_group
         if apps is not None:
             self.set_apps(apps)
 
@@ -53,7 +61,7 @@ class AppRepository:
 
     def get_filtered_apps(self, query: str, group: str) -> list[dict]:
         text = query.lower()
-        if group == DEFAULT_GROUP:
+        if self.all_group and group == self.default_group:
             filtered = [
                 app
                 for app in self.apps
@@ -63,7 +71,7 @@ class AppRepository:
             filtered = [
                 app
                 for app in self.apps
-                if (app.get("group", DEFAULT_GROUP) == group)
+                if (app.get("group", self.default_group) == group)
                 and (text in app["name"].lower() or text in app["path"].lower())
             ]
         return sorted(
@@ -94,7 +102,7 @@ class AppRepository:
     def _with_defaults(self, app_data: dict, fallback: Optional[dict] = None) -> dict:
         prepared = {
             "usage_count": 0,
-            "group": fallback.get("group", DEFAULT_GROUP) if fallback else DEFAULT_GROUP,
+            "group": fallback.get("group", self.default_group) if fallback else self.default_group,
         }
         if fallback:
             prepared.update(
@@ -113,12 +121,13 @@ class AppRepository:
                         "icon_frame_y",
                         "icon_frame_w",
                         "icon_frame_h",
+                        "description",
                     }
                 }
             )
         prepared.update(app_data)
         prepared.setdefault("usage_count", 0)
-        prepared.setdefault("group", DEFAULT_GROUP)
+        prepared.setdefault("group", self.default_group)
         prepared.setdefault("type", "exe")
         prepared.setdefault("favorite", False)
         prepared.setdefault("args", [])
@@ -128,4 +137,5 @@ class AppRepository:
         prepared.setdefault("icon_frame_y", 0.0)
         prepared.setdefault("icon_frame_w", 1.0)
         prepared.setdefault("icon_frame_h", 1.0)
+        prepared.setdefault("description", "")
         return prepared
