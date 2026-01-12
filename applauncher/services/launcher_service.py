@@ -7,6 +7,7 @@ from typing import Optional
 
 from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
 from ..repository import AppRepository, DEFAULT_GROUP
+from .validation import soft_validate_app_data, soft_validate_macro_data
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,11 @@ class LauncherService:
             return str(err)
 
         apps = [app for app in data.get("apps", []) if app.get("source") != "auto"]
+        apps = self._validate_loaded_items(apps, soft_validate_app_data)
         self._mark_missing_paths(apps)
         self.repository.set_apps(apps)
         macros = data.get("macros", [])
+        macros = self._validate_loaded_items(macros, soft_validate_macro_data)
         self._mark_missing_paths(macros)
         self.macro_repository.set_apps(macros)
         self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
@@ -59,8 +62,20 @@ class LauncherService:
                 self.macro_groups.append(macro_group)
         return None
 
+    def _validate_loaded_items(self, items: list[dict], validator) -> list[dict]:
+        validated = []
+        for item in items:
+            normalized = validator(item)
+            if normalized is not None:
+                validated.append(normalized)
+        return validated
+
     def _mark_missing_paths(self, items: list[dict]) -> None:
         for item in items:
+            if item.get("invalid"):
+                item["disabled"] = True
+                item["disabled_reason"] = item.get("invalid_reason") or "Некорректные данные"
+                continue
             item_type = item.get("type", "exe")
             if item_type == "url":
                 item["disabled"] = False

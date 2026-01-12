@@ -124,6 +124,8 @@ class AppRepository:
                         "description",
                         "disabled",
                         "disabled_reason",
+                        "invalid",
+                        "invalid_reason",
                     }
                 }
             )
@@ -142,4 +144,6 @@ class AppRepository:
         prepared.setdefault("description", "")
         prepared.setdefault("disabled", False)
         prepared.setdefault("disabled_reason", "")
+        prepared.setdefault("invalid", False)
+        prepared.setdefault("invalid_reason", "")
         return prepared
