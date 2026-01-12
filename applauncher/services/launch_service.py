@@ -20,6 +20,9 @@ class LaunchService:
     """Encapsulates app launching logic without UI dependencies."""
 
     def launch(self, app_data: dict) -> tuple[bool, str | None]:
+        if app_data.get("disabled"):
+            reason = app_data.get("disabled_reason") or "Путь не найден"
+            return False, f"Запуск заблокирован.\n{reason}"
         app_type = app_data.get("type", "exe")
         if app_type == "url":
             return self._launch_url(app_data)

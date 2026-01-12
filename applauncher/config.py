@@ -52,15 +52,32 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     }
 
 
+def _load_json(path: str) -> Any:
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def load_config(path: str) -> Dict[str, Any]:
     """Load configuration from JSON with validation."""
     if not os.path.exists(path):
         return DEFAULT_CONFIG.copy()
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = _load_json(path)
     except json.JSONDecodeError as exc:
+        backup_path = f"{path}.bak"
+        if os.path.exists(backup_path):
+            try:
+                backup_data = _load_json(backup_path)
+            except (json.JSONDecodeError, OSError):
+                raise ConfigError("Поврежден файл конфигурации") from exc
+            restored = _normalize_loaded(backup_data)
+            logger.warning("Конфигурация восстановлена из бэкапа: %s", backup_path)
+            try:
+                save_config(path, restored, backup=False)
+            except ConfigError as save_exc:
+                logger.warning("Не удалось сохранить восстановленную конфигурацию: %s", save_exc)
+            return restored
         raise ConfigError("Поврежден файл конфигурации") from exc
     except OSError as exc:  # pragma: no cover - filesystem dependent
         raise ConfigError("Не удалось прочитать конфигурацию") from exc
