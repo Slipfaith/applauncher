@@ -32,6 +32,7 @@ class AddAppDialog(QDialog):
         edit_mode: bool = False,
         app_data: dict | None = None,
         groups: list[str] | None = None,
+        default_type: str | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Редактировать" if edit_mode else "Добавить элемент")
@@ -56,6 +57,10 @@ class AddAppDialog(QDialog):
                 self.type_combo.setCurrentIndex(1)
             elif app_data.get("type") == "folder":
                 self.type_combo.setCurrentIndex(2)
+        elif default_type == "url":
+            self.type_combo.setCurrentIndex(1)
+        elif default_type == "folder":
+            self.type_combo.setCurrentIndex(2)
         self.type_combo.currentIndexChanged.connect(self.on_type_changed)
         layout.addWidget(self.type_combo)
 
@@ -71,7 +76,10 @@ class AddAppDialog(QDialog):
         path_layout = QHBoxLayout()
         self.path_input = QLineEdit()
         if app_data:
-            self.path_input.setText(app_data.get("path", ""))
+            if app_data.get("type") == "url":
+                self.path_input.setText(app_data.get("raw_path") or app_data.get("path", ""))
+            else:
+                self.path_input.setText(app_data.get("path", ""))
         path_layout.addWidget(self.path_input)
 
         self.browse_btn = QPushButton("📁 Обзор")

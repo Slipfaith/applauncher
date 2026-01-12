@@ -35,6 +35,7 @@ class AppButton(QPushButton):
     openLocationRequested = Signal(object)
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
+    copyLinkRequested = Signal(object)
 
     def __init__(
         self,
@@ -140,6 +141,9 @@ class AppButton(QPushButton):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        copy_link_action = None
+        if self.app_data.get("type") == "url":
+            copy_link_action = menu.addAction("🔗 Скопировать ссылку")
         favorite_action = None
         if self.show_favorite:
             favorite_action = menu.addAction(
@@ -171,6 +175,8 @@ class AppButton(QPushButton):
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
+        elif copy_link_action and action == copy_link_action:
+            self.copyLinkRequested.emit(self.app_data)
         elif favorite_action and action == favorite_action:
             self.favoriteToggled.emit(self.app_data)
         elif action in move_action_map:
@@ -205,6 +211,7 @@ class AppListItem(QWidget):
     openLocationRequested = Signal(object)
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
+    copyLinkRequested = Signal(object)
 
     def __init__(
         self,
@@ -265,7 +272,10 @@ class AppListItem(QWidget):
         name_label.setProperty("role", "listTitle")
         text_layout.addWidget(name_label)
 
-        path_label = QLabel(app_data["path"])
+        display_path = app_data.get("path", "")
+        if app_type == "url":
+            display_path = app_data.get("raw_path") or display_path
+        path_label = QLabel(display_path)
         path_label.setProperty("role", "listSubtitle")
         text_layout.addWidget(path_label)
         layout.addLayout(text_layout)
@@ -313,6 +323,9 @@ class AppListItem(QWidget):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        copy_link_action = None
+        if self.app_data.get("type") == "url":
+            copy_link_action = menu.addAction("🔗 Скопировать ссылку")
         favorite_action = None
         if self.show_favorite:
             favorite_action = menu.addAction(
@@ -344,6 +357,8 @@ class AppListItem(QWidget):
             self.deleteRequested.emit(self.app_data)
         elif action == open_folder_action:
             self.openLocationRequested.emit(self.app_data)
+        elif copy_link_action and action == copy_link_action:
+            self.copyLinkRequested.emit(self.app_data)
         elif favorite_action and action == favorite_action:
             self.favoriteToggled.emit(self.app_data)
         elif action in move_action_map:
