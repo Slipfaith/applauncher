@@ -19,6 +19,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macros": [],
     "macro_groups": [".vbs", ".vba", ".py"],
     "macro_view_mode": "grid",
+    "global_hotkey": "Ctrl+Alt+Space",
 }
 
 
@@ -47,6 +48,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "macros": [],
             "macro_groups": DEFAULT_CONFIG["macro_groups"].copy(),
             "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
+            "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
         }
     apps = normalize_list(data.get("apps"), [])
     groups = normalize_groups(data.get("groups"), DEFAULT_CONFIG["groups"])
@@ -54,6 +56,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macros = normalize_list(data.get("macros"), [])
     macro_groups = normalize_groups(data.get("macro_groups"), DEFAULT_CONFIG["macro_groups"])
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
+    global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     return {
         "apps": apps,
         "groups": groups,
@@ -61,6 +64,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "macros": macros,
         "macro_groups": macro_groups,
         "macro_view_mode": macro_view_mode,
+        "global_hotkey": global_hotkey,
     }
 
 

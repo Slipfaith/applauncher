@@ -23,6 +23,7 @@ class LauncherService:
         self.macro_groups: list[str] = DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = DEFAULT_CONFIG["view_mode"]
         self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
+        self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
 
     @property
     def version(self) -> int:
@@ -52,6 +53,7 @@ class LauncherService:
         self.macro_groups = data.get("macro_groups", self.macro_groups) or DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = data.get("view_mode", self.view_mode)
         self.macro_view_mode = data.get("macro_view_mode", self.macro_view_mode)
+        self.global_hotkey = data.get("global_hotkey", self.global_hotkey)
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
             if group_name not in self.groups:
@@ -107,6 +109,7 @@ class LauncherService:
             "macros": self.macro_repository.apps,
             "macro_groups": self.macro_groups or DEFAULT_CONFIG["macro_groups"].copy(),
             "macro_view_mode": self.macro_view_mode,
+            "global_hotkey": self.global_hotkey,
         }
 
     def persist_config(self) -> Optional[str]:

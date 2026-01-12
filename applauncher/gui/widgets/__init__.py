@@ -14,12 +14,16 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal, QMimeData
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
-from .styles import TOKENS, apply_shadow
-from ..repository import DEFAULT_GROUP
-from .tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
-from .tile_image.utils import load_icon_file
+from ..styles import TOKENS, apply_shadow
+from ...repository import DEFAULT_GROUP
+from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
+from ..tile_image.utils import load_icon_file
 
 logger = logging.getLogger(__name__)
+
+from .clipboard_history_widget import ClipboardHistoryWidget  # noqa: E402
+from .hotkey_settings_widget import HotkeySettingsWidget  # noqa: E402
+from .universal_search_widget import UniversalSearchWidget  # noqa: E402
 
 
 class AppButton(QPushButton):
