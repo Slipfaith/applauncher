@@ -149,7 +149,7 @@ TOKENS = DesignTokens(
         raised=ShadowToken(blur=8, offset_x=0, offset_y=3, color="rgba(15, 23, 42, 14)"),
     ),
     sizes=SizeTokens(
-        window_min=(600, 400),
+        window_min=(680, 440),
         grid_button=(120, 96),
         grid_icon=44,
         title_bar_height=30,
@@ -169,96 +169,6 @@ TOKENS = DesignTokens(
 )
 
 
-def _rgba(color: QColor, alpha: float | None = None) -> str:
-    target = QColor(color)
-    if alpha is not None:
-        target.setAlphaF(alpha)
-    return f"rgba({target.red()}, {target.green()}, {target.blue()}, {target.alphaF():.2f})"
-
-
-def build_theme_tokens(mode: str, accent: QColor, opacity: float = 0.78) -> DesignTokens:
-    mode_key = mode.lower()
-    base = TOKENS
-    accent_color = QColor(accent)
-    accent_color.setAlphaF(1.0)
-    accent_hover = accent_color.darker(115)
-    accent_soft_alpha = 0.18 if mode_key == "light" else 0.28
-    accent_soft = QColor(accent_color)
-    accent_soft.setAlphaF(accent_soft_alpha)
-
-    if mode_key == "dark":
-        colors = ColorTokens(
-            background=_rgba(QColor("#111827"), opacity),
-            surface=_rgba(QColor("#1f2937"), opacity),
-            surface_alt=_rgba(QColor("#374151"), opacity),
-            surface_hover=_rgba(QColor("#475569"), min(opacity + 0.08, 0.9)),
-            border=_rgba(QColor("#94a3b8"), 0.35),
-            border_soft=_rgba(QColor("#94a3b8"), 0.2),
-            text_primary="#f9fafb",
-            text_secondary="#e5e7eb",
-            text_muted="#cbd5e1",
-            accent=accent_color.name(),
-            accent_soft=_rgba(accent_soft),
-            accent_hover=accent_hover.name(),
-            danger="#f87171",
-        )
-    else:
-        colors = ColorTokens(
-            background=_rgba(QColor("#f5f5f4"), opacity),
-            surface=_rgba(QColor("#ffffff"), opacity),
-            surface_alt=_rgba(QColor("#f3f4f6"), opacity),
-            surface_hover=_rgba(QColor("#e2e8f0"), min(opacity + 0.08, 0.9)),
-            border=_rgba(QColor("#d1d5db"), 0.6),
-            border_soft=_rgba(QColor("#e5e7eb"), 0.5),
-            text_primary="#1f2933",
-            text_secondary="#4b5563",
-            text_muted="#6b7280",
-            accent=accent_color.name(),
-            accent_soft=_rgba(accent_soft),
-            accent_hover=accent_hover.name(),
-            danger="#b91c1c",
-        )
-
-    return DesignTokens(
-        colors=colors,
-        typography=base.typography,
-        spacing=base.spacing,
-        radii=base.radii,
-        shadows=base.shadows,
-        sizes=base.sizes,
-        layout=base.layout,
-    )
-
-
-def interpolate_color_tokens(start: ColorTokens, end: ColorTokens, progress: float) -> ColorTokens:
-    def lerp_color(a: str, b: str) -> str:
-        start_color = QColor(a)
-        end_color = QColor(b)
-        red = start_color.red() + (end_color.red() - start_color.red()) * progress
-        green = start_color.green() + (end_color.green() - start_color.green()) * progress
-        blue = start_color.blue() + (end_color.blue() - start_color.blue()) * progress
-        alpha = start_color.alphaF() + (end_color.alphaF() - start_color.alphaF()) * progress
-        blended = QColor(int(red), int(green), int(blue))
-        blended.setAlphaF(alpha)
-        return _rgba(blended)
-
-    return ColorTokens(
-        background=lerp_color(start.background, end.background),
-        surface=lerp_color(start.surface, end.surface),
-        surface_alt=lerp_color(start.surface_alt, end.surface_alt),
-        surface_hover=lerp_color(start.surface_hover, end.surface_hover),
-        border=lerp_color(start.border, end.border),
-        border_soft=lerp_color(start.border_soft, end.border_soft),
-        text_primary=lerp_color(start.text_primary, end.text_primary),
-        text_secondary=lerp_color(start.text_secondary, end.text_secondary),
-        text_muted=lerp_color(start.text_muted, end.text_muted),
-        accent=lerp_color(start.accent, end.accent),
-        accent_soft=lerp_color(start.accent_soft, end.accent_soft),
-        accent_hover=lerp_color(start.accent_hover, end.accent_hover),
-        danger=lerp_color(start.danger, end.danger),
-    )
-
-
 def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     colors = tokens.colors
     spacing = tokens.spacing
@@ -274,13 +184,12 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QMainWindow#mainWindow {{
         background-color: {colors.background};
-        border: none;
+        border: 1px solid {colors.border};
         border-radius: {radii.xl}px;
     }}
 
     QWidget#centralContainer {{
         background-color: {colors.surface};
-        border: none;
         border-radius: {radii.xl}px;
     }}
 
