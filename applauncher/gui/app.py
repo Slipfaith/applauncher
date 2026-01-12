@@ -97,7 +97,7 @@ class AppLauncher(QMainWindow):
         self.setMinimumSize(*TOKENS.sizes.window_min)
         self.setAcceptDrops(True)
 
-        self.service = LauncherService(config_file="launcher_config.json")
+        self.service = LauncherService()
         self.repository = self.service.repository
         self.macro_repository = self.service.macro_repository
         self._last_render_state: tuple[str, str, str, str, int] | None = None

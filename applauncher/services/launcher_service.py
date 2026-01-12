@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from ..config import ConfigError, DEFAULT_CONFIG, load_config, save_config
+from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
 from ..repository import AppRepository, DEFAULT_GROUP
 
 logger = logging.getLogger(__name__)
@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class LauncherService:
     """Business logic for managing apps, groups, and configuration."""
 
-    def __init__(self, config_file: str = "launcher_config.json", repository: Optional[AppRepository] = None):
-        self.config_file = config_file
+    def __init__(self, config_file: Optional[str] = None, repository: Optional[AppRepository] = None):
+        self.config_file = config_file or resolve_config_path()
         self.repository = repository or AppRepository()
         self.macro_repository = AppRepository(default_group=DEFAULT_GROUP, all_group=False)
         self.groups: list[str] = [DEFAULT_GROUP]
