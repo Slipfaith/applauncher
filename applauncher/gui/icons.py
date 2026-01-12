@@ -5,6 +5,8 @@ import logging
 
 from PySide6.QtGui import QPixmap, QImage
 
+from ..config import resolve_icons_cache_dir
+
 try:
     import win32gui
     import win32ui
@@ -21,8 +23,7 @@ logger = logging.getLogger(__name__)
 def extract_icon_from_exe(exe_path: str) -> str | None:
     """Extract an icon from an executable and return the stored path."""
     try:
-        icons_dir = Path("launcher_icons")
-        icons_dir.mkdir(exist_ok=True)
+        icons_dir = Path(resolve_icons_cache_dir())
         icon_path = icons_dir / f"{Path(exe_path).stem}.png"
 
         if HAS_WIN32:

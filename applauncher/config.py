@@ -121,6 +121,22 @@ def resolve_config_path(filename: str = "launcher_config.json") -> str:
     return str(config_dir / filename)
 
 
+def resolve_icons_cache_dir(folder_name: str = "launcher_icons") -> str:
+    """Resolve a per-user cache directory for extracted icons."""
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        base_dir = Path(appdata)
+    else:
+        xdg_cache_home = os.environ.get("XDG_CACHE_HOME") or os.environ.get("XDG_CONFIG_HOME")
+        if xdg_cache_home:
+            base_dir = Path(xdg_cache_home)
+        else:
+            base_dir = Path.home() / ".cache"
+    cache_dir = base_dir / APP_NAME / folder_name
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return str(cache_dir)
+
+
 def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None:
     """Persist configuration atomically with optional backup."""
     directory = os.path.dirname(path)

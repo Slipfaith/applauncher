@@ -418,6 +418,9 @@ class TitleBar(QWidget):
         self.start = None
 
     def close_to_tray(self):
+        if not getattr(self.parent, "tray_available", False) or not self.parent.tray_icon:
+            self.parent.close()
+            return
         self.parent.hide()
         self.parent.tray_icon.showMessage(
             "Лаунчер",
