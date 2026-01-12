@@ -957,7 +957,6 @@ class AppLauncher(QMainWindow):
     def _on_hotkey_activated(self):
         self.show()
         self.activateWindow()
-        self.universal_search.open_search()
 
     def _launch_search_result(self, result):
         if result.item_type == "macro":
