@@ -167,6 +167,8 @@ class AppButton(QPushButton):
             empty_action.setEnabled(False)
 
         action = menu.exec(self.mapToGlobal(pos))
+        if action is None:
+            return
         if action == edit_action:
             self.editRequested.emit(self.app_data)
         elif action == delete_action:
@@ -349,6 +351,8 @@ class AppListItem(QWidget):
             empty_action.setEnabled(False)
 
         action = menu.exec(self.mapToGlobal(pos))
+        if action is None:
+            return
         if action == edit_action:
             self.editRequested.emit(self.app_data)
         elif action == delete_action:
