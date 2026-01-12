@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
-import logging
+from pathlib import Path
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
+
+APP_NAME = "AppLauncher"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "apps": [],
@@ -65,8 +68,27 @@ def load_config(path: str) -> Dict[str, Any]:
     return _normalize_loaded(data)
 
 
+def resolve_config_path(filename: str = "launcher_config.json") -> str:
+    """Resolve a per-user configuration path for the launcher."""
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        base_dir = Path(appdata)
+    else:
+        xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_config_home:
+            base_dir = Path(xdg_config_home)
+        else:
+            base_dir = Path.home() / ".config"
+    config_dir = base_dir / APP_NAME
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return str(config_dir / filename)
+
+
 def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None:
     """Persist configuration atomically with optional backup."""
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     if backup and os.path.exists(path):
         backup_path = f"{path}.bak"
         try:
