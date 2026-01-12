@@ -184,6 +184,8 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
     data.setdefault("source", "manual")
     data.setdefault("disabled", False)
     data.setdefault("disabled_reason", "")
+    data.setdefault("invalid", False)
+    data.setdefault("invalid_reason", "")
     return data, None
 
 
@@ -216,4 +218,65 @@ def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
     data.setdefault("source", "manual")
     data.setdefault("disabled", False)
     data.setdefault("disabled_reason", "")
+    data.setdefault("invalid", False)
+    data.setdefault("invalid_reason", "")
     return data, None
+
+
+def soft_validate_app_data(data: dict | None) -> dict | None:
+    if not data:
+        return None
+    validated, error = validate_app_data(dict(data))
+    if not error and validated:
+        validated["invalid"] = False
+        validated["invalid_reason"] = ""
+        return validated
+    fallback = dict(data)
+    name = (fallback.get("name") or "").strip()
+    path_value = (fallback.get("path") or "").strip()
+    if not name:
+        name = path_value or "Без названия"
+    fallback["name"] = name
+    fallback["path"] = path_value
+    args = fallback.get("args") or []
+    if isinstance(args, str):
+        args = [args]
+    fallback["args"] = args
+    fallback.setdefault("type", "exe")
+    fallback.setdefault("group", DEFAULT_GROUP)
+    fallback.setdefault("usage_count", 0)
+    fallback.setdefault("favorite", False)
+    fallback.setdefault("source", "manual")
+    fallback["invalid"] = True
+    fallback["invalid_reason"] = error or "Некорректные данные"
+    fallback["disabled"] = True
+    fallback["disabled_reason"] = fallback["invalid_reason"]
+    return fallback
+
+
+def soft_validate_macro_data(data: dict | None) -> dict | None:
+    if not data:
+        return None
+    validated, error = validate_macro_data(dict(data))
+    if not error and validated:
+        validated["invalid"] = False
+        validated["invalid_reason"] = ""
+        return validated
+    fallback = dict(data)
+    name = (fallback.get("name") or "").strip()
+    path_value = (fallback.get("path") or "").strip()
+    if not name:
+        name = path_value or "Без названия"
+    fallback["name"] = name
+    fallback["path"] = path_value
+    fallback.setdefault("description", (fallback.get("description") or "").strip())
+    fallback.setdefault("type", (fallback.get("type") or "").strip())
+    fallback.setdefault("group", (fallback.get("group") or DEFAULT_GROUP))
+    fallback.setdefault("usage_count", 0)
+    fallback.setdefault("favorite", False)
+    fallback.setdefault("source", "manual")
+    fallback["invalid"] = True
+    fallback["invalid_reason"] = error or "Некорректные данные"
+    fallback["disabled"] = True
+    fallback["disabled_reason"] = fallback["invalid_reason"]
+    return fallback
