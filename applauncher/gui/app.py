@@ -126,6 +126,8 @@ class AppLauncher(QMainWindow):
         self.settings_dialog: SettingsDialog | None = None
         self.tray_icon: QSystemTrayIcon | None = None
         self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+        self._shown_via_hotkey = False
+        self._tile_launch_should_hide = False
         if self.tray_available:
             self.create_tray_icon()
         else:
@@ -326,7 +328,7 @@ class AppLauncher(QMainWindow):
         tray_menu = QMenu()
 
         show_action = tray_menu.addAction("🚀 Показать")
-        show_action.triggered.connect(self.show)
+        show_action.triggered.connect(self._show_from_tray)
 
         settings_action = tray_menu.addAction("⚙️ Настройки")
         settings_action.triggered.connect(self.show_settings)
@@ -345,8 +347,26 @@ class AppLauncher(QMainWindow):
             if self.isVisible():
                 self.hide()
             else:
-                self.show()
-                self.activateWindow()
+                self._show_from_tray()
+
+    def _show_from_tray(self) -> None:
+        self._shown_via_hotkey = False
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _minimize_to_tray(self, show_message: bool = False) -> None:
+        if not self.tray_available or not self.tray_icon:
+            return
+        self.hide()
+        self._shown_via_hotkey = False
+        if show_message:
+            self.tray_icon.showMessage(
+                "Лаунчер",
+                "Приложение свернуто в трей. Кликните на иконку для возврата.",
+                QSystemTrayIcon.Information,
+                2000,
+            )
 
     def show_settings(self):
         if self.settings_dialog is None:
@@ -367,13 +387,7 @@ class AppLauncher(QMainWindow):
     def closeEvent(self, event):
         if self.tray_available and self.tray_icon:
             event.ignore()
-            self.hide()
-            self.tray_icon.showMessage(
-                "Лаунчер",
-                "Приложение свернуто в трей. Кликните на иконку для возврата.",
-                QSystemTrayIcon.Information,
-                2000,
-            )
+            self._minimize_to_tray(show_message=True)
             return
         response = QMessageBox.question(
             self,
@@ -733,6 +747,19 @@ class AppLauncher(QMainWindow):
         else:
             self.launch_app(app_data)
 
+    def launch_item_from_tile(self, app_data: dict) -> None:
+        should_hide = (
+            self._shown_via_hotkey
+            and not self.is_macro_section
+            and self.tray_available
+            and self.tray_icon is not None
+        )
+        self._tile_launch_should_hide = should_hide
+        try:
+            self.launch_item(app_data)
+        finally:
+            self._tile_launch_should_hide = False
+
     def launch_app(self, app_data: dict):
         success, error = self.launch_service.launch(app_data)
         if not success:
@@ -743,6 +770,8 @@ class AppLauncher(QMainWindow):
         app_data.update(updated)
         self.schedule_save()
         self.refresh_view()
+        if self._tile_launch_should_hide:
+            self._minimize_to_tray()
 
     def launch_macro(self, macro_data: dict):
         success, error = self.launch_service.launch(macro_data)
@@ -823,7 +852,7 @@ class AppLauncher(QMainWindow):
                 default_group=self.default_group,
                 show_favorite=not self.is_macro_section,
             )
-            btn.activated.connect(self.launch_item)
+            btn.activated.connect(self.launch_item_from_tile)
             btn.editRequested.connect(self.edit_item)
             btn.deleteRequested.connect(self.delete_item)
             btn.openLocationRequested.connect(self.open_location)
@@ -849,7 +878,7 @@ class AppLauncher(QMainWindow):
                 default_group=self.default_group,
                 show_favorite=not self.is_macro_section,
             )
-            item.activated.connect(self.launch_item)
+            item.activated.connect(self.launch_item_from_tile)
             item.editRequested.connect(self.edit_item)
             item.deleteRequested.connect(self.delete_item)
             item.openLocationRequested.connect(self.open_location)
@@ -1079,6 +1108,7 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
 
     def _on_hotkey_activated(self):
+        self._shown_via_hotkey = True
         self._show_on_active_screen()
 
     def _launch_search_result(self, result):
