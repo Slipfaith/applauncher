@@ -31,6 +31,7 @@ from PySide6.QtGui import (
     QPixmap,
     QKeySequence,
     QShortcut,
+    QCursor,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
@@ -94,11 +95,16 @@ class GroupTabBar(QTabBar):
 class AppLauncher(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("mainWindow")
         self.setMinimumSize(*TOKENS.sizes.window_min)
+        self.resize(*TOKENS.sizes.window_min)
         self.setAcceptDrops(True)
+        self.setMouseTracking(True)
+
+        self._tile_size = TOKENS.sizes.grid_button
+        self._grid_columns = 0
 
         self.service = LauncherService()
         self.repository = self.service.repository
@@ -804,11 +810,14 @@ class AppLauncher(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
+        self._update_grid_layout()
         current_group = self.current_group
         for app in apps:
             btn = AppButton(
                 app,
                 self.grid_widget,
+                tile_size=self._tile_size,
+                icon_size=self._grid_icon_size(),
                 available_groups=self.groups,
                 current_group=current_group,
                 default_group=self.default_group,
@@ -1044,7 +1053,10 @@ class AppLauncher(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.grid_layout.invalidate()
+        if self.view_mode == "grid":
+            if self._update_grid_layout():
+                self._refresh_grid_tile_sizes()
+            self.grid_layout.invalidate()
 
     def setup_shortcuts(self):
         shortcut = QShortcut(QKeySequence(self.service.global_hotkey), self)
@@ -1067,8 +1079,7 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
 
     def _on_hotkey_activated(self):
-        self.show()
-        self.activateWindow()
+        self._show_on_active_screen()
 
     def _launch_search_result(self, result):
         if result.item_type == "macro":
@@ -1125,8 +1136,46 @@ class AppLauncher(QMainWindow):
         if self.isVisible():
             self.hide()
         else:
-            self.show()
-            self.activateWindow()
+            self._show_on_active_screen()
+
+    def _show_on_active_screen(self) -> None:
+        screen = QApplication.screenAt(QCursor.pos())
+        if screen is not None:
+            available = screen.availableGeometry()
+            new_x = available.x() + max(0, (available.width() - self.width()) // 2)
+            new_y = available.y() + max(0, (available.height() - self.height()) // 2)
+            self.move(new_x, new_y)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _update_grid_layout(self) -> bool:
+        available_width = max(1, self.grid_widget.width())
+        spacing = self.grid_layout.horizontalSpacing()
+        margin = self.grid_layout.contentsMargins().left()
+        usable_width = max(1, available_width - (margin * 2))
+        min_tile_width = TOKENS.sizes.grid_button[0]
+        columns = max(1, int((usable_width + spacing) / (min_tile_width + spacing)))
+        columns = max(2, columns)
+        if columns == self._grid_columns:
+            return False
+        self._grid_columns = columns
+        total_spacing = spacing * (columns - 1)
+        tile_width = max(1, int((usable_width - total_spacing) / columns))
+        tile_height = int(tile_width * TOKENS.sizes.grid_button[1] / TOKENS.sizes.grid_button[0])
+        self._tile_size = (tile_width, tile_height)
+        return True
+
+    def _refresh_grid_tile_sizes(self) -> None:
+        icon_size = self._grid_icon_size()
+        for index in range(self.grid_layout.count()):
+            item = self.grid_layout.itemAt(index)
+            widget = item.widget() if item else None
+            if isinstance(widget, AppButton):
+                widget.set_tile_size(self._tile_size, icon_size)
+
+    def _grid_icon_size(self) -> int:
+        return max(24, int(self._tile_size[0] * 0.4))
 
 
 def run_app():

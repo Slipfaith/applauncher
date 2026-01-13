@@ -149,7 +149,7 @@ TOKENS = DesignTokens(
         raised=ShadowToken(blur=8, offset_x=0, offset_y=3, color="rgba(15, 23, 42, 14)"),
     ),
     sizes=SizeTokens(
-        window_min=(680, 440),
+        window_min=(680, 520),
         grid_button=(120, 96),
         grid_icon=44,
         title_bar_height=30,
