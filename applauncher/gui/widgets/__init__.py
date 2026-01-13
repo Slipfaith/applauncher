@@ -41,6 +41,8 @@ class AppButton(QPushButton):
         self,
         app_data: dict,
         parent=None,
+        tile_size: tuple[int, int] | None = None,
+        icon_size: int | None = None,
         available_groups: list[str] | None = None,
         current_group: str | None = None,
         default_group: str | None = DEFAULT_GROUP,
@@ -54,6 +56,9 @@ class AppButton(QPushButton):
         self.show_favorite = show_favorite
         self._drag_start_pos = None
         self.setProperty("role", "appTile")
+
+        self.tile_size = tile_size or TOKENS.sizes.grid_button
+        self.icon_size = icon_size or TOKENS.sizes.grid_icon
 
         prefix = "★ " if self.show_favorite and app_data.get("favorite") else ""
         display_name = f"{prefix}{app_data['name']}"
@@ -69,13 +74,15 @@ class AppButton(QPushButton):
         elif app_type == "folder" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"📁 {display_name}"
         self.setToolTip(display_name)
-        self.setText("" if has_custom_icon else self._wrap_text(display_label))
+        self._display_label = display_label
+        self._has_custom_icon = has_custom_icon
+        self._sync_text()
         if icon_path and os.path.exists(icon_path):
             if has_custom_icon:
                 pixmap = load_icon_file(icon_path)
                 if not pixmap.isNull():
                     frame = resolve_icon_frame(app_data)
-                    fitted = render_framed_pixmap(pixmap, QSize(*TOKENS.sizes.grid_button), frame)
+                    fitted = render_framed_pixmap(pixmap, QSize(*self.tile_size), frame)
                     self.setIcon(QIcon(fitted))
                 else:
                     self.setIcon(QIcon(icon_path))
@@ -83,11 +90,11 @@ class AppButton(QPushButton):
                 self.setIcon(QIcon(icon_path))
         if has_custom_icon:
             self.setProperty("iconMode", "full")
-            self.setIconSize(QSize(*TOKENS.sizes.grid_button))
+            self.setIconSize(QSize(*self.tile_size))
         else:
-            self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
+            self.setIconSize(QSize(self.icon_size, self.icon_size))
         # Fixed size for FlowLayout consistency
-        self.setFixedSize(*TOKENS.sizes.grid_button)
+        self.setFixedSize(*self.tile_size)
         apply_shadow(self, TOKENS.shadows.raised)
 
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
@@ -102,7 +109,7 @@ class AppButton(QPushButton):
 
     def _wrap_text(self, text: str, max_lines: int = 2) -> str:
         metrics = QFontMetrics(self.font())
-        max_width = TOKENS.sizes.grid_button[0] - (TOKENS.spacing.md * 2)
+        max_width = self.tile_size[0] - (TOKENS.spacing.md * 2)
         if max_width <= 0 or not text:
             return text
         words = text.split()
@@ -136,6 +143,22 @@ class AppButton(QPushButton):
             lines[-1] = metrics.elidedText(lines[-1], Qt.ElideRight, max_width)
 
         return "\n".join(lines)
+
+    def set_tile_size(self, tile_size: tuple[int, int], icon_size: int) -> None:
+        self.tile_size = tile_size
+        self.icon_size = icon_size
+        if self._has_custom_icon:
+            self.setIconSize(QSize(*self.tile_size))
+        else:
+            self.setIconSize(QSize(self.icon_size, self.icon_size))
+        self.setFixedSize(*self.tile_size)
+        self._sync_text()
+
+    def _sync_text(self) -> None:
+        if self._has_custom_icon:
+            self.setText("")
+        else:
+            self.setText(self._wrap_text(self._display_label))
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
