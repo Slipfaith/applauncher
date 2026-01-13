@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QWidget
 
 
@@ -22,10 +22,6 @@ class ColorTokens:
     accent: str
     accent_soft: str
     accent_hover: str
-    accent_pressed: str
-    focus_ring: str
-    tooltip_background: str
-    tooltip_text: str
     danger: str
 
 
@@ -109,29 +105,25 @@ class DesignTokens:
 
 TOKENS = DesignTokens(
     colors=ColorTokens(
-        background="#fafafa",
+        background="#f5f5f4",
         surface="#ffffff",
-        surface_alt="#f5f5f5",
-        surface_hover="#f5f5f5",
-        border="#e0e0e0",
-        border_soft="#ededed",
-        text_primary="#1a1a1a",
-        text_secondary="#6b6b6b",
-        text_muted="#999999",
-        accent="#0078d4",
-        accent_soft="rgba(0, 120, 212, 0.12)",
-        accent_hover="#0067b3",
-        accent_pressed="#005a9c",
-        focus_ring="rgba(0, 120, 212, 0.2)",
-        tooltip_background="#2d2d2d",
-        tooltip_text="#ffffff",
-        danger="#c62828",
+        surface_alt="#f3f4f6",
+        surface_hover="#eceff1",
+        border="#d1d5db",
+        border_soft="#e5e7eb",
+        text_primary="#1f2933",
+        text_secondary="#4b5563",
+        text_muted="#6b7280",
+        accent="#6b7280",
+        accent_soft="#e5e7eb",
+        accent_hover="#4b5563",
+        danger="#b91c1c",
     ),
     typography=TypographyTokens(
         font_family="'Inter', 'Segoe UI', sans-serif",
-        font_size_sm=12,
-        font_size_md=14,
-        font_size_lg=15,
+        font_size_sm=11,
+        font_size_md=12,
+        font_size_lg=14,
         weight_regular=400,
         weight_semibold=600,
         weight_bold=700,
@@ -139,123 +131,42 @@ TOKENS = DesignTokens(
     ),
     spacing=SpacingTokens(
         none=0,
-        xs=8,
-        sm=12,
-        md=16,
-        lg=24,
-        xl=32,
-        xxl=40,
+        xs=3,
+        sm=6,
+        md=10,
+        lg=12,
+        xl=16,
+        xxl=20,
     ),
     radii=RadiusTokens(
-        sm=4,
-        md=6,
-        lg=8,
+        sm=6,
+        md=8,
+        lg=10,
         xl=12,
     ),
     shadows=ShadowTokens(
-        floating=ShadowToken(blur=16, offset_x=0, offset_y=6, color="rgba(0, 0, 0, 0.12)"),
-        raised=ShadowToken(blur=8, offset_x=0, offset_y=2, color="rgba(0, 0, 0, 0.08)"),
+        floating=ShadowToken(blur=12, offset_x=0, offset_y=4, color="rgba(15, 23, 42, 18)"),
+        raised=ShadowToken(blur=8, offset_x=0, offset_y=3, color="rgba(15, 23, 42, 14)"),
     ),
     sizes=SizeTokens(
         window_min=(680, 440),
-        grid_button=(140, 140),
-        grid_icon=48,
-        title_bar_height=44,
+        grid_button=(120, 96),
+        grid_icon=44,
+        title_bar_height=30,
         dialog_min_width=420,
         tray_icon=56,
-        tab_min_width=88,
-        combo_drop_down=22,
+        tab_min_width=72,
+        combo_drop_down=18,
     ),
     layout=LayoutTokens(
-        content_margins=(24, 24, 24, 24),
-        content_spacing=16,
-        search_spacing=8,
-        grid_layout_margin=0,
-        grid_layout_spacing=12,
-        list_spacing=8,
+        content_margins=(12, 12, 12, 12),
+        content_spacing=8,
+        search_spacing=6,
+        grid_layout_margin=6,
+        grid_layout_spacing=8,
+        list_spacing=6,
     ),
 )
-
-def _rgba(color: QColor, alpha: float) -> str:
-    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
-
-
-def _accent_variant(accent: QColor, factor: int) -> str:
-    return accent.darker(factor).name(QColor.HexRgb)
-
-
-def _search_icon(color: str) -> str:
-    hex_color = color.lstrip("#")
-    return (
-        "data:image/svg+xml;utf8,"
-        "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'>"
-        f"<path fill='%23{hex_color}' d='M15.5 14h-.79l-.28-.27A6.5 6.5 0 1 0 14 15.5l.27.28v.79L20 21.5 21.5 20zM10 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10'/>"
-        "</svg>"
-    )
-
-
-def _build_color_tokens(accent: QColor, is_dark: bool) -> ColorTokens:
-    if is_dark:
-        base_background = "#1e1e1e"
-        base_surface = "#2d2d2d"
-        base_surface_alt = "#2a2a2a"
-        base_surface_hover = "#2a2a2a"
-        base_border = "#3a3a3a"
-        base_border_soft = "#333333"
-        base_text_primary = "#ffffff"
-        base_text_secondary = "#b0b0b0"
-        base_text_muted = "#8f8f8f"
-        tooltip_background = "#f5f5f5"
-        tooltip_text = "#1e1e1e"
-        accent_color = accent.lighter(115)
-    else:
-        base_background = "#fafafa"
-        base_surface = "#ffffff"
-        base_surface_alt = "#f5f5f5"
-        base_surface_hover = "#f5f5f5"
-        base_border = "#e0e0e0"
-        base_border_soft = "#ededed"
-        base_text_primary = "#1a1a1a"
-        base_text_secondary = "#6b6b6b"
-        base_text_muted = "#999999"
-        tooltip_background = "#2d2d2d"
-        tooltip_text = "#ffffff"
-        accent_color = accent
-
-    accent_hex = accent_color.name(QColor.HexRgb)
-    accent_soft = _rgba(accent_color, 0.12)
-    focus_ring = _rgba(accent_color, 0.2)
-
-    return ColorTokens(
-        background=base_background,
-        surface=base_surface,
-        surface_alt=base_surface_alt,
-        surface_hover=base_surface_hover,
-        border=base_border,
-        border_soft=base_border_soft,
-        text_primary=base_text_primary,
-        text_secondary=base_text_secondary,
-        text_muted=base_text_muted,
-        accent=accent_hex,
-        accent_soft=accent_soft,
-        accent_hover=_accent_variant(accent_color, 110),
-        accent_pressed=_accent_variant(accent_color, 120),
-        focus_ring=focus_ring,
-        tooltip_background=tooltip_background,
-        tooltip_text=tooltip_text,
-        danger="#c62828",
-    )
-
-
-def resolve_tokens(app: QApplication, tokens: DesignTokens = TOKENS) -> DesignTokens:
-    palette = app.palette()
-    window_color = palette.color(QPalette.Window)
-    is_dark = window_color.lightness() < 128
-    accent_color = palette.color(QPalette.Highlight)
-    if not accent_color.isValid():
-        accent_color = QColor(tokens.colors.accent)
-    colors = _build_color_tokens(accent_color, is_dark)
-    return replace(tokens, colors=colors)
 
 
 def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
@@ -263,11 +174,6 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     spacing = tokens.spacing
     radii = tokens.radii
     typography = tokens.typography
-    sizes = tokens.sizes
-    separator = _rgba(QColor(colors.text_primary), 0.2)
-    accent_half = _rgba(QColor(colors.accent), 0.5)
-    accent_strong = _rgba(QColor(colors.accent), 0.8)
-    search_icon = _search_icon(colors.text_muted)
 
     return f"""
     * {{
@@ -278,11 +184,12 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QMainWindow#mainWindow {{
         background-color: {colors.background};
+        border: 1px solid {colors.border};
         border-radius: {radii.xl}px;
     }}
 
     QWidget#centralContainer {{
-        background-color: {colors.background};
+        background-color: {colors.surface};
         border-radius: {radii.xl}px;
     }}
 
@@ -293,50 +200,50 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QTabBar {{
         background-color: transparent;
+        border-radius: {radii.lg}px;
         padding: 0;
     }}
 
     QTabBar::tab {{
-        background: transparent;
+        background: {colors.surface};
         color: {colors.text_secondary};
-        border: none;
-        padding: 0 {spacing.sm}px;
-        margin-right: {spacing.sm}px;
-        min-width: {sizes.tab_min_width}px;
-        height: 44px;
-        font-weight: {typography.weight_regular};
+        border: 1px solid {colors.border_soft};
+        border-radius: {radii.lg}px;
+        padding: {spacing.xs}px {spacing.lg}px;
+        margin-right: {spacing.xs}px;
+        min-width: {tokens.sizes.tab_min_width}px;
+        max-width: {tokens.sizes.tab_min_width}px;
+        font-weight: {typography.weight_semibold};
     }}
 
     QTabBar::tab:selected {{
+        background: {colors.accent_soft};
         color: {colors.text_primary};
-        font-weight: {typography.weight_bold};
-        border-bottom: 3px solid {colors.accent};
-        padding-bottom: 9px;
+        border-color: {colors.accent};
     }}
 
     QTabBar::tab:hover {{
         background: {colors.surface_hover};
-    }}
-
-    QTabBar::tab:!selected {{
-        border-bottom: 3px solid transparent;
-        padding-bottom: 9px;
+        border-color: {colors.border};
     }}
 
     QTabBar#groupTabs::tab:last {{
-        background: transparent;
-        color: {colors.text_secondary};
-        min-width: 44px;
-        max-width: 44px;
+        background: {colors.accent};
+        color: {colors.surface};
+        border-color: {colors.accent};
+        min-width: 32px;
+        max-width: 32px;
+        padding: {spacing.xs}px {spacing.sm}px;
     }}
 
     QTabBar#groupTabs::tab:last:hover {{
-        background: {colors.surface_hover};
+        background: {colors.accent_hover};
+        border-color: {colors.accent_hover};
     }}
 
     QWidget#titleBar {{
-        background-color: {colors.background};
-        border-bottom: 1px solid {colors.border};
+        background-color: {colors.surface};
+        border-bottom: 1px solid {colors.border_soft};
         border-top-left-radius: {radii.xl}px;
         border-top-right-radius: {radii.xl}px;
     }}
@@ -351,71 +258,53 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     QPushButton {{
         background-color: {colors.surface};
         color: {colors.text_primary};
-        border: none;
+        border: 1px solid {colors.border};
         border-radius: {radii.md}px;
-        padding: {spacing.sm}px {spacing.lg}px;
+        padding: {spacing.sm}px {spacing.md}px;
         font-weight: {typography.weight_semibold};
-        min-height: 44px;
-        min-width: 44px;
     }}
 
     QPushButton:hover {{
         background-color: {colors.surface_hover};
+        border-color: {colors.border};
     }}
 
     QPushButton:pressed {{
         background-color: {colors.surface_alt};
     }}
 
-    QPushButton:focus {{
-        border: 2px solid {colors.accent};
-    }}
-
     QPushButton[variant="accent"] {{
         background-color: {colors.accent};
-        color: #ffffff;
-        border: none;
-        font-size: {typography.font_size_md}px;
-        font-weight: {typography.weight_semibold};
+        color: {colors.surface};
+        border: 1px solid {colors.accent};
+        font-weight: {typography.weight_bold};
     }}
 
     QPushButton[variant="accent"]:hover {{
         background-color: {colors.accent_hover};
     }}
 
-    QPushButton[variant="accent"]:pressed {{
-        background-color: {colors.accent_pressed};
-    }}
-
     QPushButton[variant="control"] {{
         background-color: {colors.surface_alt};
-        border: none;
+        border-color: {colors.border_soft};
         font-weight: {typography.weight_semibold};
     }}
 
     QPushButton[variant="control"]:checked {{
         background-color: {colors.accent_soft};
+        border-color: {colors.accent};
         color: {colors.text_primary};
     }}
 
     QPushButton[role="viewToggle"] {{
         padding: {spacing.xs}px {spacing.sm}px;
-        min-width: {sizes.combo_drop_down}px;
+        min-width: {tokens.sizes.combo_drop_down}px;
         font-size: {typography.font_size_md}px;
     }}
 
     QPushButton[variant="secondary"] {{
-        background-color: transparent;
-        color: {colors.accent};
-        border: none;
-    }}
-
-    QPushButton[variant="secondary"]:hover {{
-        background-color: {colors.accent_soft};
-    }}
-
-    QPushButton[variant="secondary"]:pressed {{
-        background-color: {colors.accent_soft};
+        background-color: {colors.surface_alt};
+        border-color: {colors.border};
     }}
 
     QPushButton[variant="ghost"] {{
@@ -445,8 +334,6 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-radius: {radii.sm}px;
         padding: {spacing.xs}px {spacing.sm}px;
         font-size: {typography.font_size_md}px;
-        min-height: 44px;
-        min-width: 44px;
     }}
 
     QPushButton[role="appTile"] {{
@@ -454,7 +341,7 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-radius: {radii.lg}px;
         padding: {spacing.md}px;
         font-size: {typography.font_size_sm}px;
-        font-weight: {typography.weight_semibold};
+        font-weight: {typography.weight_bold};
         text-align: center;
         color: {colors.text_primary};
     }}
@@ -469,12 +356,13 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QWidget[role="listItem"] {{
         background: {colors.surface};
-        border: none;
+        border: 1px solid {colors.border_soft};
         border-radius: {radii.lg}px;
     }}
 
     QWidget[role="listItem"]:hover {{
         background: {colors.surface_hover};
+        border-color: {colors.border};
     }}
 
     QLabel[role="listTitle"] {{
@@ -491,20 +379,14 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         background-color: {colors.surface};
         color: {colors.text_primary};
         border: 1px solid {colors.border};
-        border-radius: {radii.lg}px;
-        padding: 12px 16px;
-        font-size: 15px;
-        min-height: 44px;
+        border-radius: {radii.md}px;
+        padding: {spacing.sm}px {spacing.md}px;
+        font-size: {typography.font_size_md}px;
     }}
 
     QLineEdit:focus {{
         border: 2px solid {colors.accent};
-        padding: 11px 15px;
-    }}
-
-    QLineEdit::placeholder {{
-        color: {colors.text_muted};
-        font-size: 15px;
+        padding: {spacing.xs}px {spacing.md - 1}px;
     }}
 
     QComboBox {{
@@ -522,7 +404,7 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QComboBox::drop-down {{
         border: none;
-        width: {sizes.combo_drop_down}px;
+        width: {tokens.sizes.combo_drop_down}px;
     }}
 
     QDialog {{
@@ -557,116 +439,11 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         background: transparent;
         border: none;
     }}
-
-    QScrollBar:vertical {{
-        background: transparent;
-        width: 8px;
-        margin: 2px 0 2px 0;
-    }}
-
-    QScrollBar::handle:vertical {{
-        background: {accent_half};
-        min-height: 24px;
-        border-radius: 4px;
-    }}
-
-    QScrollBar::handle:vertical:hover {{
-        background: {accent_strong};
-    }}
-
-    QScrollBar::add-line:vertical,
-    QScrollBar::sub-line:vertical {{
-        height: 0px;
-        width: 0px;
-    }}
-
-    QScrollBar::add-page:vertical,
-    QScrollBar::sub-page:vertical {{
-        background: transparent;
-    }}
-
-    QScrollBar:horizontal {{
-        background: transparent;
-        height: 8px;
-        margin: 0 2px 0 2px;
-    }}
-
-    QScrollBar::handle:horizontal {{
-        background: {accent_half};
-        min-width: 24px;
-        border-radius: 4px;
-    }}
-
-    QScrollBar::handle:horizontal:hover {{
-        background: {accent_strong};
-    }}
-
-    QScrollBar::add-line:horizontal,
-    QScrollBar::sub-line:horizontal {{
-        width: 0px;
-        height: 0px;
-    }}
-
-    QScrollBar::add-page:horizontal,
-    QScrollBar::sub-page:horizontal {{
-        background: transparent;
-    }}
-
-    QToolTip {{
-        background-color: {colors.tooltip_background};
-        color: {colors.tooltip_text};
-        border-radius: {radii.sm}px;
-        padding: 6px 10px;
-    }}
-
-    QToolButton {{
-        background: transparent;
-        border: none;
-        border-radius: {radii.md}px;
-        min-width: 44px;
-        min-height: 44px;
-    }}
-
-    QToolButton:hover {{
-        background-color: {colors.surface_hover};
-    }}
-
-    QToolButton:focus {{
-        border: 2px solid {colors.accent};
-    }}
-
-    [role="iconButton"] {{
-        min-width: 32px;
-        min-height: 32px;
-        border-radius: 16px;
-        padding: 0px;
-    }}
-
-    [role="iconButton"]:hover {{
-        background-color: {colors.surface_hover};
-    }}
-
-    QLineEdit#searchInput {{
-        padding-left: 44px;
-        background-image: url("{search_icon}");
-        background-repeat: no-repeat;
-        background-position: 16px center;
-    }}
-
-    QWidget[role="appTile"] {{
-        min-width: 140px;
-        min-height: 140px;
-    }}
-
-    QWidget[role="separator"] {{
-        background-color: {separator};
-    }}
     """
 
 
 def apply_design_system(app: QApplication, tokens: DesignTokens = TOKENS) -> None:
-    resolved = resolve_tokens(app, tokens)
-    app.setStyleSheet(build_stylesheet(resolved))
+    app.setStyleSheet(build_stylesheet(tokens))
 
 
 def apply_shadow(widget: QWidget, shadow: ShadowToken) -> None:
