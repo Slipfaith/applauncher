@@ -778,7 +778,11 @@ class AppLauncher(QMainWindow):
                 if app.get("type") == "url"
             ]
         else:
-            filtered = self.service.filtered_apps(query, current_group)
+            filtered = [
+                app
+                for app in self.service.filtered_apps(query, current_group)
+                if app.get("type") != "url"
+            ]
         self._sync_view_toggle()
 
         if self.view_mode == "grid":
@@ -852,7 +856,11 @@ class AppLauncher(QMainWindow):
                 if app.get("type") == "url"
             ]
         else:
-            filtered = self.service.filtered_apps(self.search_input.text(), current_group)
+            filtered = [
+                app
+                for app in self.service.filtered_apps(self.search_input.text(), current_group)
+                if app.get("type") != "url"
+            ]
         if not filtered:
             return
         self.launch_item(filtered[0])
