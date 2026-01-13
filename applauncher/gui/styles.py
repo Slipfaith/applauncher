@@ -145,11 +145,11 @@ TOKENS = DesignTokens(
         xl=12,
     ),
     shadows=ShadowTokens(
-        floating=ShadowToken(blur=12, offset_x=0, offset_y=4, color="rgba(15, 23, 42, 18)"),
-        raised=ShadowToken(blur=8, offset_x=0, offset_y=3, color="rgba(15, 23, 42, 14)"),
+        floating=ShadowToken(blur=18, offset_x=0, offset_y=8, color="rgba(0, 0, 0, 80)"),
+        raised=ShadowToken(blur=12, offset_x=0, offset_y=4, color="rgba(0, 0, 0, 60)"),
     ),
     sizes=SizeTokens(
-        window_min=(680, 440),
+        window_min=(600, 400),
         grid_button=(120, 96),
         grid_icon=44,
         title_bar_height=30,
@@ -167,6 +167,125 @@ TOKENS = DesignTokens(
         list_spacing=6,
     ),
 )
+
+
+def _clamp_channel(value: float) -> int:
+    return max(0, min(255, int(round(value))))
+
+
+def _to_rgba(color: QColor, alpha_override: int | None = None) -> str:
+    alpha = color.alpha() if alpha_override is None else alpha_override
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+
+def _blend_colors(start: QColor, end: QColor, progress: float) -> QColor:
+    return QColor(
+        _clamp_channel(start.red() + (end.red() - start.red()) * progress),
+        _clamp_channel(start.green() + (end.green() - start.green()) * progress),
+        _clamp_channel(start.blue() + (end.blue() - start.blue()) * progress),
+        _clamp_channel(start.alpha() + (end.alpha() - start.alpha()) * progress),
+    )
+
+
+def _shift_color(color: QColor, shift: int) -> QColor:
+    return QColor(
+        _clamp_channel(color.red() + shift),
+        _clamp_channel(color.green() + shift),
+        _clamp_channel(color.blue() + shift),
+        color.alpha(),
+    )
+
+
+def build_theme_tokens(
+    *,
+    is_light: bool,
+    accent: QColor,
+    opacity: float = 0.78,
+    tokens: DesignTokens = TOKENS,
+) -> DesignTokens:
+    alpha = _clamp_channel(255 * opacity)
+    if is_light:
+        background = QColor(248, 248, 249, alpha)
+        surface = QColor(255, 255, 255, alpha)
+        surface_alt = QColor(243, 244, 246, alpha)
+        surface_hover = QColor(236, 239, 241, alpha)
+        border = QColor(210, 214, 220, 180)
+        border_soft = QColor(229, 231, 235, 140)
+        text_primary = QColor(29, 30, 34)
+        text_secondary = QColor(59, 63, 71)
+        text_muted = QColor(107, 114, 128)
+    else:
+        background = QColor(22, 23, 26, alpha)
+        surface = QColor(30, 31, 35, alpha)
+        surface_alt = QColor(38, 40, 45, alpha)
+        surface_hover = QColor(45, 48, 54, alpha)
+        border = QColor(68, 70, 76, 180)
+        border_soft = QColor(58, 60, 66, 140)
+        text_primary = QColor(244, 245, 247)
+        text_secondary = QColor(200, 202, 207)
+        text_muted = QColor(148, 153, 160)
+
+    accent_color = QColor(accent)
+    accent_hover = _shift_color(accent_color, -20 if is_light else 25)
+    accent_soft = QColor(accent_color)
+    accent_soft.setAlpha(_clamp_channel(255 * 0.24))
+
+    colors = ColorTokens(
+        background=_to_rgba(background),
+        surface=_to_rgba(surface),
+        surface_alt=_to_rgba(surface_alt),
+        surface_hover=_to_rgba(surface_hover),
+        border=_to_rgba(border),
+        border_soft=_to_rgba(border_soft),
+        text_primary=_to_rgba(text_primary),
+        text_secondary=_to_rgba(text_secondary),
+        text_muted=_to_rgba(text_muted),
+        accent=_to_rgba(accent_color),
+        accent_soft=_to_rgba(accent_soft),
+        accent_hover=_to_rgba(accent_hover),
+        danger=_to_rgba(QColor(220, 38, 38)),
+    )
+    return DesignTokens(
+        colors=colors,
+        typography=tokens.typography,
+        spacing=tokens.spacing,
+        radii=tokens.radii,
+        shadows=tokens.shadows,
+        sizes=tokens.sizes,
+        layout=tokens.layout,
+    )
+
+
+def interpolate_tokens(start: DesignTokens, end: DesignTokens, progress: float) -> DesignTokens:
+    def blend_channel(start_value: str, end_value: str) -> str:
+        return _to_rgba(
+            _blend_colors(QColor(start_value), QColor(end_value), progress)
+        )
+
+    colors = ColorTokens(
+        background=blend_channel(start.colors.background, end.colors.background),
+        surface=blend_channel(start.colors.surface, end.colors.surface),
+        surface_alt=blend_channel(start.colors.surface_alt, end.colors.surface_alt),
+        surface_hover=blend_channel(start.colors.surface_hover, end.colors.surface_hover),
+        border=blend_channel(start.colors.border, end.colors.border),
+        border_soft=blend_channel(start.colors.border_soft, end.colors.border_soft),
+        text_primary=blend_channel(start.colors.text_primary, end.colors.text_primary),
+        text_secondary=blend_channel(start.colors.text_secondary, end.colors.text_secondary),
+        text_muted=blend_channel(start.colors.text_muted, end.colors.text_muted),
+        accent=blend_channel(start.colors.accent, end.colors.accent),
+        accent_soft=blend_channel(start.colors.accent_soft, end.colors.accent_soft),
+        accent_hover=blend_channel(start.colors.accent_hover, end.colors.accent_hover),
+        danger=blend_channel(start.colors.danger, end.colors.danger),
+    )
+    return DesignTokens(
+        colors=colors,
+        typography=start.typography,
+        spacing=start.spacing,
+        radii=start.radii,
+        shadows=start.shadows,
+        sizes=start.sizes,
+        layout=start.layout,
+    )
 
 
 def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
@@ -387,6 +506,17 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     QLineEdit:focus {{
         border: 2px solid {colors.accent};
         padding: {spacing.xs}px {spacing.md - 1}px;
+    }}
+
+    QWidget[role="listItem"][hovered="true"],
+    QPushButton[role="appTile"][hovered="true"] {{
+        background-color: {colors.surface_hover};
+    }}
+
+    QLineEdit#searchInput[pulse="true"] {{
+        border: 2px solid {colors.accent};
+        padding: {spacing.xs}px {spacing.md - 1}px;
+        background-color: {colors.surface_alt};
     }}
 
     QComboBox {{
