@@ -275,7 +275,7 @@ class AddMacroDialog(QDialog):
             TOKENS.spacing.xl,
         )
 
-        type_label = QLabel("Тип макроса")
+        type_label = QLabel("Группа")
         layout.addWidget(type_label)
         self.type_combo = QComboBox()
         self.type_combo.addItems(self.available_groups)
@@ -334,25 +334,18 @@ class AddMacroDialog(QDialog):
             group = macro_data.get("group")
             if group and group in self.available_groups:
                 self.type_combo.setCurrentText(group)
-        self.path_input.textChanged.connect(self.sync_type_from_path)
-        self.sync_type_from_path()
 
     def browse_path(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите файл макроса",
             "",
-            "Macro Files (*.vbs *.vba *.py)",
+            "Все файлы (*.*)",
         )
         if file_path:
             self.path_input.setText(file_path)
             if not self.name_input.text():
                 self.name_input.setText(Path(file_path).stem)
-
-    def sync_type_from_path(self):
-        suffix = Path(self.path_input.text().strip()).suffix.lower()
-        if suffix in self.available_groups:
-            self.type_combo.setCurrentText(suffix)
 
     def get_data(self) -> dict:
         return {

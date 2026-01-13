@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
+from ..repository import DEFAULT_GROUP
 
 logger = logging.getLogger(__name__)
 
@@ -212,17 +212,14 @@ def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
     if not os.path.exists(path_value):
         return None, f"Файл не найден:\n{path_value}"
     suffix = Path(path_value).suffix.lower()
-    if suffix not in set(DEFAULT_MACRO_GROUPS):
-        return None, "Выберите файл макроса с расширением .vbs, .vba или .py"
-    selected_group = (data.get("group") or "").strip().lower()
-    if selected_group and selected_group != suffix:
-        return None, "Тип макроса не совпадает с расширением выбранного файла"
+    selected_group = (data.get("group") or "").strip()
+    group = selected_group or DEFAULT_GROUP
     description = (data.get("description") or "").strip()
     data["name"] = name
     data["path"] = path_value
     data["description"] = description
-    data["type"] = suffix.lstrip(".")
-    data["group"] = suffix
+    data["type"] = suffix.lstrip(".") or "file"
+    data["group"] = group
     data.setdefault("usage_count", 0)
     data.setdefault("favorite", False)
     data.setdefault("args", [])
