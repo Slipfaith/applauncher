@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QSize, Signal, QMimeData
+from PySide6.QtCore import Qt, QSize, Signal, QMimeData
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from ..styles import TOKENS, apply_shadow
@@ -53,8 +53,6 @@ class AppButton(QPushButton):
         self.default_group = default_group
         self.show_favorite = show_favorite
         self._drag_start_pos = None
-        self._hover_animation = None
-        self._base_geometry = None
         self.setProperty("role", "appTile")
 
         prefix = "★ " if self.show_favorite and app_data.get("favorite") else ""
@@ -95,33 +93,6 @@ class AppButton(QPushButton):
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
-
-    def enterEvent(self, event):
-        self.setProperty("hovered", True)
-        self._animate_hover(scale=1.02)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.setProperty("hovered", False)
-        self._animate_hover(scale=1.0)
-        super().leaveEvent(event)
-
-    def _animate_hover(self, scale: float) -> None:
-        if self._base_geometry is None:
-            self._base_geometry = self.geometry()
-        base = self._base_geometry
-        target = QRect(base)
-        target.setWidth(int(base.width() * scale))
-        target.setHeight(int(base.height() * scale))
-        target.moveCenter(base.center())
-        if self._hover_animation and self._hover_animation.state() == self._hover_animation.Running:
-            self._hover_animation.stop()
-        self._hover_animation = QPropertyAnimation(self, b"geometry", self)
-        self._hover_animation.setDuration(150)
-        self._hover_animation.setStartValue(self.geometry())
-        self._hover_animation.setEndValue(target)
-        self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
-        self._hover_animation.start()
 
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)
@@ -261,8 +232,6 @@ class AppListItem(QWidget):
         self.show_favorite = show_favorite
         self._drag_start_pos = None
         self._dragging = False
-        self._hover_animation = None
-        self._base_geometry = None
         self.setProperty("role", "listItem")
 
         from PySide6.QtWidgets import QHBoxLayout
@@ -319,33 +288,6 @@ class AppListItem(QWidget):
 
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
-
-    def enterEvent(self, event):
-        self.setProperty("hovered", True)
-        self._animate_hover(scale=1.02)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.setProperty("hovered", False)
-        self._animate_hover(scale=1.0)
-        super().leaveEvent(event)
-
-    def _animate_hover(self, scale: float) -> None:
-        if self._base_geometry is None:
-            self._base_geometry = self.geometry()
-        base = self._base_geometry
-        target = QRect(base)
-        target.setWidth(int(base.width() * scale))
-        target.setHeight(int(base.height() * scale))
-        target.moveCenter(base.center())
-        if self._hover_animation and self._hover_animation.state() == self._hover_animation.Running:
-            self._hover_animation.stop()
-        self._hover_animation = QPropertyAnimation(self, b"geometry", self)
-        self._hover_animation.setDuration(150)
-        self._hover_animation.setStartValue(self.geometry())
-        self._hover_animation.setEndValue(target)
-        self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
-        self._hover_animation.start()
 
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)
@@ -479,7 +421,7 @@ class TitleBar(QWidget):
         if not getattr(self.parent, "tray_available", False) or not self.parent.tray_icon:
             self.parent.close()
             return
-        self.parent.animate_hide()
+        self.parent.hide()
         self.parent.tray_icon.showMessage(
             "Лаунчер",
             "Приложение свернуто в трей",
