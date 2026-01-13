@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizeGrip,
     QSizePolicy,
     QStackedWidget,
     QSystemTrayIcon,
@@ -38,7 +39,7 @@ from .icon_service import IconService
 from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
 from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, TitleBar, UniversalSearchWidget
-from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
+from ..repository import DEFAULT_GROUP
 from ..services.clipboard_service import ClipboardService
 from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
@@ -296,6 +297,10 @@ class AppLauncher(QMainWindow):
         self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
         self.content_stack.addWidget(self.clipboard_widget)
 
+        self.size_grip = QSizeGrip(container)
+        self.size_grip.setObjectName("sizeGrip")
+        main_layout.addWidget(self.size_grip, alignment=Qt.AlignBottom | Qt.AlignRight)
+
         self.load_state()
         self.setWindowOpacity(self.service.window_opacity)
         self.setup_shortcuts()
@@ -382,18 +387,19 @@ class AppLauncher(QMainWindow):
 
     def dropEvent(self, event: QDropEvent):
         added = False
+        current_group = self.current_group
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             suffix = Path(file_path).suffix.lower()
 
             if self.is_macro_section:
-                if suffix in set(DEFAULT_MACRO_GROUPS) and os.path.exists(file_path):
+                if os.path.exists(file_path):
                     name = Path(file_path).stem
                     macro_data = {
                         "name": name,
                         "path": file_path,
                         "description": "",
-                        "group": suffix,
+                        "group": current_group,
                     }
                     data, error = validate_macro_data(macro_data)
                     if error:
@@ -1038,7 +1044,7 @@ class AppLauncher(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # FlowLayout automatically handles resizing
+        self.grid_layout.invalidate()
 
     def setup_shortcuts(self):
         shortcut = QShortcut(QKeySequence(self.service.global_hotkey), self)
