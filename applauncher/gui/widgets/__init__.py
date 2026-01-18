@@ -122,39 +122,48 @@ class AppButton(QPushButton):
     def set_current_group(self, group: str | None) -> None:
         self.current_group = group
 
-    def _wrap_text(self, text: str, max_lines: int = 2) -> str:
+    def _wrap_text(self, text: str, max_lines: int = 3) -> str:
         metrics = QFontMetrics(self.font())
         max_width = self.tile_size[0] - (TOKENS.spacing.md * 2)
         if max_width <= 0 or not text:
             return text
-        words = text.split()
-        if not words:
-            return text
 
-        lines = []
-        current = ""
-        word_index = 0
-        for idx, word in enumerate(words):
-            candidate = f"{current} {word}".strip()
-            if metrics.horizontalAdvance(candidate) <= max_width or not current:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
-                if len(lines) == max_lines - 1:
-                    word_index = idx
+        def wrap_line(line: str) -> list[str]:
+            words = line.split()
+            if not words:
+                return [line]
+            wrapped: list[str] = []
+            current = ""
+            for word in words:
+                candidate = f"{current} {word}".strip()
+                if metrics.horizontalAdvance(candidate) <= max_width or not current:
+                    current = candidate
+                else:
+                    wrapped.append(current)
+                    current = word
+            if current:
+                wrapped.append(current)
+            return wrapped
+
+        raw_lines = text.splitlines() or [text]
+        lines: list[str] = []
+        total_segments = 0
+        for raw in raw_lines:
+            wrapped_segments = wrap_line(raw)
+            total_segments += len(wrapped_segments)
+            for segment in wrapped_segments:
+                lines.append(segment)
+                if len(lines) >= max_lines:
                     break
-            word_index = idx + 1
+            if len(lines) >= max_lines:
+                break
 
-        if current and len(lines) < max_lines:
-            lines.append(current)
+        if not lines:
+            return ""
 
-        truncated = word_index < len(words)
-        if len(lines) > max_lines:
-            lines = lines[:max_lines]
-            truncated = True
+        truncated = total_segments > max_lines
 
-        if lines and (truncated or metrics.horizontalAdvance(lines[-1]) > max_width):
+        if truncated or metrics.horizontalAdvance(lines[-1]) > max_width:
             lines[-1] = metrics.elidedText(lines[-1], Qt.ElideRight, max_width)
 
         return "\n".join(lines)
