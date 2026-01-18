@@ -32,6 +32,17 @@ class LaunchService:
             return self._launch_folder(app_data)
         return self._launch_executable(app_data)
 
+    def launch_with_args(
+        self, app_data: dict, args: list[str]
+    ) -> tuple[bool, str | None, subprocess.Popen | None]:
+        if app_data.get("disabled"):
+            reason = app_data.get("disabled_reason") or "Путь не найден"
+            return False, f"Запуск заблокирован.\n{reason}", None
+        app_type = app_data.get("type", "exe")
+        if app_type in {"url", "lnk", "folder"}:
+            return False, "Этот тип макроса не поддерживает входные данные.", None
+        return self._launch_executable_with_args(app_data, args)
+
     def open_location(self, app_data: dict) -> tuple[bool, str | None]:
         if app_data.get("type") == "url":
             return False, "Для веб-ссылок нет локальной папки"
@@ -80,6 +91,21 @@ class LaunchService:
         except OSError as err:  # pragma: no cover - system dependent
             logger.warning("Ошибка запуска %s: %s", path_value, err)
             return False, f"Не удалось запустить файл:\n{err}"
+
+    def _launch_executable_with_args(
+        self, app_data: dict, args: list[str]
+    ) -> tuple[bool, str | None, subprocess.Popen | None]:
+        path_value = app_data.get("path", "")
+        if not os.path.exists(path_value):
+            logger.warning("Файл не найден: %s", path_value)
+            return False, f"Файл не найден:\n{path_value}", None
+        try:
+            process = subprocess.Popen([path_value, *args])
+            logger.info("Запуск приложения %s", path_value)
+            return True, None, process
+        except OSError as err:  # pragma: no cover - system dependent
+            logger.warning("Ошибка запуска %s: %s", path_value, err)
+            return False, f"Не удалось запустить файл:\n{err}", None
 
     def _launch_shortcut(self, app_data: dict) -> tuple[bool, str | None]:
         path_value = app_data.get("path", "")
