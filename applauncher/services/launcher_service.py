@@ -162,6 +162,10 @@ class LauncherService:
         remaining = [app for app in self.repository.apps if app.get("type") != "url"]
         self.repository.set_apps(remaining)
 
+    def clear_folders(self) -> None:
+        remaining = [app for app in self.repository.apps if app.get("type") != "folder"]
+        self.repository.set_apps(remaining)
+
     def clear_macros(self) -> None:
         self.macro_repository.clear_apps()
 
