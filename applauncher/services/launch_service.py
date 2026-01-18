@@ -43,6 +43,35 @@ class LaunchService:
             return False, "Этот тип макроса не поддерживает входные данные.", None
         return self._launch_executable_with_args(app_data, args)
 
+    def preview_macro(self, app_data: dict, args: list[str]) -> tuple[bool, str, str | None]:
+        if app_data.get("disabled"):
+            reason = app_data.get("disabled_reason") or "Путь не найден"
+            return False, "", f"Запуск заблокирован.\n{reason}"
+        app_type = app_data.get("type", "exe")
+        if app_type in {"url", "lnk", "folder"}:
+            return False, "", "Этот тип макроса не поддерживает входные данные."
+        path_value = app_data.get("path", "")
+        if not os.path.exists(path_value):
+            logger.warning("Файл не найден: %s", path_value)
+            return False, "", f"Файл не найден:\n{path_value}"
+        try:
+            completed = subprocess.run(
+                [path_value, *args],
+                capture_output=True,
+                text=True,
+            )
+            output = (completed.stdout or "").strip()
+            error_output = (completed.stderr or "").strip()
+            combined = "\n".join([chunk for chunk in [output, error_output] if chunk])
+            if completed.returncode != 0:
+                logger.warning("Dry-run завершился ошибкой (%s)", completed.returncode)
+                return False, combined, f"Код завершения: {completed.returncode}"
+            logger.info("Dry-run выполнен для %s", path_value)
+            return True, combined, None
+        except OSError as err:  # pragma: no cover - system dependent
+            logger.warning("Ошибка запуска %s: %s", path_value, err)
+            return False, "", f"Не удалось запустить файл:\n{err}"
+
     def open_location(self, app_data: dict) -> tuple[bool, str | None]:
         if app_data.get("type") == "url":
             return False, "Для веб-ссылок нет локальной папки"
@@ -81,7 +110,10 @@ class LaunchService:
             logger.warning("Файл не найден: %s", path_value)
             return False, f"Файл не найден:\n{path_value}"
         try:
+            allow_args = not (app_data.get("is_macro") or app_data.get("input_type"))
             args = app_data.get("args") or []
+            if not allow_args:
+                args = []
             if args:
                 subprocess.Popen([path_value, *args])
             else:

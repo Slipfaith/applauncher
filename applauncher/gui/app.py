@@ -51,6 +51,7 @@ from ..services.validation import (
     validate_app_data,
     validate_macro_data,
 )
+from ..services.macro_security import is_restricted_macro_path
 
 logger = logging.getLogger(__name__)
 
@@ -833,38 +834,96 @@ class AppLauncher(QMainWindow):
             self._minimize_to_tray()
 
     def launch_macro(self, macro_data: dict):
+        if not self._confirm_macro_execution(macro_data, None):
+            logger.info("Запуск макроса отменен пользователем: %s", macro_data.get("name"))
+            return
         success, error = self.launch_service.launch(macro_data)
         if not success:
             if error:
                 QMessageBox.warning(self, "Ошибка", error)
+                logger.warning("Ошибка запуска макроса %s: %s", macro_data.get("name"), error)
             return
         updated = self.service.increment_macro_usage(macro_data["path"]) or macro_data
         macro_data.update(updated)
         self._mark_macro_running(macro_data["path"])
         self.schedule_save()
         self.refresh_view()
+        logger.info("Запуск макроса завершен: %s", macro_data.get("name"))
 
     def launch_macro_with_input(self, macro_data: dict, input_path: str) -> None:
         input_type = macro_data.get("input_type", "file")
         if input_type == "folder" and not os.path.isdir(input_path):
             QMessageBox.warning(self, "Ошибка", "Этот макрос принимает только папки.")
+            logger.warning("Запуск макроса отменен: неверный тип входа (папка ожидается).")
             return
         if input_type == "file" and not os.path.isfile(input_path):
             QMessageBox.warning(self, "Ошибка", "Этот макрос принимает только файлы.")
+            logger.warning("Запуск макроса отменен: неверный тип входа (файл ожидается).")
+            return
+        restricted, reason = is_restricted_macro_path(input_path)
+        if restricted:
+            QMessageBox.warning(self, "Ошибка", reason)
+            logger.warning("Запуск макроса отменен из-за ограничения пути: %s", reason)
+            return
+        if not self._confirm_macro_execution(macro_data, input_path):
+            logger.info("Запуск макроса отменен пользователем: %s", macro_data.get("name"))
             return
         success, error, process = self.launch_service.launch_with_args(macro_data, [input_path])
         if not success:
             if error:
                 QMessageBox.warning(self, "Ошибка", error)
+                logger.warning("Ошибка запуска макроса %s: %s", macro_data.get("name"), error)
             return
         updated = self.service.increment_macro_usage(macro_data["path"]) or macro_data
         macro_data.update(updated)
         self._mark_macro_running(macro_data["path"], process)
         self.schedule_save()
         self.refresh_view()
+        logger.info("Запуск макроса завершен: %s", macro_data.get("name"))
 
     def on_macro_input_dropped(self, macro_data: dict, input_path: str) -> None:
         self.launch_macro_with_input(macro_data, input_path)
+
+    def _confirm_macro_execution(self, macro_data: dict, input_path: str | None) -> bool:
+        while True:
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("Подтверждение запуска макроса")
+            dialog.setIcon(QMessageBox.Warning)
+            dialog.setText("Макрос может изменять файлы: удалять, перемещать или перезаписывать данные.")
+            dialog.setInformativeText("Рекомендуется выполнить dry-run перед запуском.")
+            dry_run_btn = dialog.addButton("🧪 Dry-run", QMessageBox.ActionRole)
+            run_btn = dialog.addButton("▶ Запустить", QMessageBox.AcceptRole)
+            dialog.addButton("Отмена", QMessageBox.RejectRole)
+            dialog.exec()
+            clicked = dialog.clickedButton()
+            if clicked == run_btn:
+                return True
+            if clicked == dry_run_btn:
+                self._show_macro_dry_run(macro_data, input_path)
+                continue
+            return False
+
+    def _show_macro_dry_run(self, macro_data: dict, input_path: str | None) -> None:
+        args = []
+        if input_path:
+            args.append(input_path)
+        args.append("--dry-run")
+        success, output, error = self.launch_service.preview_macro(macro_data, args)
+        logger.info("Dry-run для макроса %s: %s", macro_data.get("name"), "ok" if success else "error")
+        if not output:
+            output = "Вывод отсутствует."
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Dry-run макроса")
+        if success:
+            dialog.setIcon(QMessageBox.Information)
+            dialog.setText("Предварительный анализ выполнен.")
+        else:
+            dialog.setIcon(QMessageBox.Warning)
+            dialog.setText("Dry-run завершился ошибкой.")
+            if error:
+                dialog.setInformativeText(error)
+        dialog.setDetailedText(output)
+        dialog.exec()
 
     def _mark_macro_running(self, macro_path: str, process=None) -> None:
         self._macro_run_states[macro_path] = "running"
