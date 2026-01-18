@@ -128,6 +128,11 @@ class AppLauncher(QMainWindow):
         self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         self._shown_via_hotkey = False
         self._tile_launch_should_hide = False
+        self._macro_run_states: dict[str, str] = {}
+        self._macro_run_processes: dict[str, list] = {}
+        self._macro_state_timer = QTimer(self)
+        self._macro_state_timer.setInterval(500)
+        self._macro_state_timer.timeout.connect(self._refresh_macro_runs)
         if self.tray_available:
             self.create_tray_icon()
         else:
@@ -835,8 +840,72 @@ class AppLauncher(QMainWindow):
             return
         updated = self.service.increment_macro_usage(macro_data["path"]) or macro_data
         macro_data.update(updated)
+        self._mark_macro_running(macro_data["path"])
         self.schedule_save()
         self.refresh_view()
+
+    def launch_macro_with_input(self, macro_data: dict, input_path: str) -> None:
+        input_type = macro_data.get("input_type", "file")
+        if input_type == "folder" and not os.path.isdir(input_path):
+            QMessageBox.warning(self, "Ошибка", "Этот макрос принимает только папки.")
+            return
+        if input_type == "file" and not os.path.isfile(input_path):
+            QMessageBox.warning(self, "Ошибка", "Этот макрос принимает только файлы.")
+            return
+        success, error, process = self.launch_service.launch_with_args(macro_data, [input_path])
+        if not success:
+            if error:
+                QMessageBox.warning(self, "Ошибка", error)
+            return
+        updated = self.service.increment_macro_usage(macro_data["path"]) or macro_data
+        macro_data.update(updated)
+        self._mark_macro_running(macro_data["path"], process)
+        self.schedule_save()
+        self.refresh_view()
+
+    def on_macro_input_dropped(self, macro_data: dict, input_path: str) -> None:
+        self.launch_macro_with_input(macro_data, input_path)
+
+    def _mark_macro_running(self, macro_path: str, process=None) -> None:
+        self._macro_run_states[macro_path] = "running"
+        self._last_render_state = None
+        if process is not None:
+            self._macro_run_processes.setdefault(macro_path, []).append(process)
+            if not self._macro_state_timer.isActive():
+                self._macro_state_timer.start()
+        else:
+            QTimer.singleShot(2000, lambda: self._clear_macro_state(macro_path))
+
+    def _clear_macro_state(self, macro_path: str) -> None:
+        if self._macro_run_processes.get(macro_path):
+            return
+        if self._macro_run_states.pop(macro_path, None):
+            self._last_render_state = None
+            self.refresh_view()
+
+    def _refresh_macro_runs(self) -> None:
+        updated = False
+        for macro_path, processes in list(self._macro_run_processes.items()):
+            still_running = [proc for proc in processes if proc.poll() is None]
+            if still_running:
+                self._macro_run_processes[macro_path] = still_running
+            else:
+                self._macro_run_processes.pop(macro_path, None)
+                if self._macro_run_states.pop(macro_path, None):
+                    updated = True
+        if not self._macro_run_processes and self._macro_state_timer.isActive():
+            self._macro_state_timer.stop()
+        if updated:
+            self._last_render_state = None
+            self.refresh_view()
+
+    def _decorate_macro(self, macro: dict) -> dict:
+        decorated = dict(macro)
+        decorated["is_macro"] = True
+        decorated["input_type"] = macro.get("input_type", "file")
+        decorated["accept_input_drop"] = True
+        decorated["run_state"] = self._macro_run_states.get(macro.get("path", ""))
+        return decorated
 
     def open_location(self, app_data: dict):
         success, error = self.launch_service.open_location(app_data)
@@ -902,8 +971,9 @@ class AppLauncher(QMainWindow):
         self._update_grid_layout()
         current_group = self.current_group
         for app in apps:
+            view_data = self._decorate_macro(app) if self.is_macro_section else app
             btn = AppButton(
-                app,
+                view_data,
                 self.grid_widget,
                 tile_size=self._tile_size,
                 icon_size=self._grid_icon_size(),
@@ -917,6 +987,8 @@ class AppLauncher(QMainWindow):
             btn.deleteRequested.connect(self.delete_item)
             btn.openLocationRequested.connect(self.open_location)
             btn.copyLinkRequested.connect(self.copy_link)
+            if self.is_macro_section:
+                btn.inputDropped.connect(self.on_macro_input_dropped)
             if not self.is_macro_section:
                 btn.favoriteToggled.connect(self.toggle_favorite)
             btn.moveRequested.connect(self.move_item_to_group)
@@ -930,8 +1002,9 @@ class AppLauncher(QMainWindow):
 
         current_group = self.current_group
         for app in apps:
+            view_data = self._decorate_macro(app) if self.is_macro_section else app
             item = AppListItem(
-                app,
+                view_data,
                 self.list_container,
                 available_groups=self.groups,
                 current_group=current_group,
@@ -943,6 +1016,8 @@ class AppLauncher(QMainWindow):
             item.deleteRequested.connect(self.delete_item)
             item.openLocationRequested.connect(self.open_location)
             item.copyLinkRequested.connect(self.copy_link)
+            if self.is_macro_section:
+                item.inputDropped.connect(self.on_macro_input_dropped)
             if not self.is_macro_section:
                 item.favoriteToggled.connect(self.toggle_favorite)
             item.moveRequested.connect(self.move_item_to_group)

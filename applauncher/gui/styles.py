@@ -346,11 +346,24 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         color: {colors.text_primary};
     }}
 
+    QPushButton[role="appTile"][inputType="file"] {{
+        border: 1px dashed {colors.border_soft};
+    }}
+
+    QPushButton[role="appTile"][inputType="folder"] {{
+        border: 1px solid {colors.border};
+    }}
+
     QPushButton[role="appTile"][iconMode="full"] {{
         padding: 0px;
     }}
 
     QPushButton[role="appTile"]:hover {{
+        background-color: {colors.surface_hover};
+    }}
+
+    QPushButton[role="appTile"][runState="running"] {{
+        border: 2px solid {colors.accent};
         background-color: {colors.surface_hover};
     }}
 
@@ -365,6 +378,10 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-color: {colors.border};
     }}
 
+    QWidget[role="listItem"][runState="running"] {{
+        border-color: {colors.accent};
+    }}
+
     QLabel[role="listTitle"] {{
         font-weight: {typography.weight_semibold};
         color: {colors.text_primary};
@@ -372,6 +389,11 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
 
     QLabel[role="listSubtitle"] {{
         color: {colors.text_muted};
+        font-size: {typography.font_size_sm}px;
+    }}
+
+    QLabel[role="listMeta"] {{
+        color: {colors.text_secondary};
         font-size: {typography.font_size_sm}px;
     }}
 

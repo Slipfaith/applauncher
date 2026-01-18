@@ -302,6 +302,13 @@ class AddMacroDialog(QDialog):
         path_layout.addWidget(self.browse_btn)
         layout.addLayout(path_layout)
 
+        input_type_label = QLabel("Тип входа")
+        layout.addWidget(input_type_label)
+        self.input_type_combo = QComboBox()
+        self.input_type_combo.addItem("Файл", userData="file")
+        self.input_type_combo.addItem("Папка", userData="folder")
+        layout.addWidget(self.input_type_combo)
+
         description_label = QLabel("Описание")
         layout.addWidget(description_label)
         self.description_input = QTextEdit()
@@ -334,6 +341,11 @@ class AddMacroDialog(QDialog):
             group = macro_data.get("group")
             if group and group in self.available_groups:
                 self.type_combo.setCurrentText(group)
+            input_type = macro_data.get("input_type")
+            if input_type:
+                index = self.input_type_combo.findData(input_type)
+                if index >= 0:
+                    self.input_type_combo.setCurrentIndex(index)
 
     def browse_path(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -353,4 +365,5 @@ class AddMacroDialog(QDialog):
             "path": self.path_input.text(),
             "description": self.description_input.toPlainText(),
             "group": self.type_combo.currentText(),
+            "input_type": self.input_type_combo.currentData(),
         }

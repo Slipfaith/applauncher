@@ -215,11 +215,15 @@ def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
     selected_group = (data.get("group") or "").strip()
     group = selected_group or DEFAULT_GROUP
     description = (data.get("description") or "").strip()
+    input_type = (data.get("input_type") or "").strip().lower()
+    if input_type not in {"file", "folder"}:
+        input_type = "file"
     data["name"] = name
     data["path"] = path_value
     data["description"] = description
     data["type"] = suffix.lstrip(".") or "file"
     data["group"] = group
+    data["input_type"] = input_type
     data.setdefault("usage_count", 0)
     data.setdefault("favorite", False)
     data.setdefault("args", [])
@@ -284,6 +288,7 @@ def soft_validate_macro_data(data: dict | None) -> dict | None:
     fallback.setdefault("description", (fallback.get("description") or "").strip())
     fallback.setdefault("type", (fallback.get("type") or "").strip())
     fallback.setdefault("group", (fallback.get("group") or DEFAULT_GROUP))
+    fallback.setdefault("input_type", (fallback.get("input_type") or "file").strip().lower() or "file")
     fallback.setdefault("usage_count", 0)
     fallback.setdefault("favorite", False)
     fallback.setdefault("source", "manual")
