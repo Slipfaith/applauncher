@@ -178,6 +178,7 @@ class AppLauncher(QMainWindow):
         self.section_tabs.addTab("Приложения")
         self.section_tabs.addTab("Макросы")
         self.section_tabs.addTab("Ссылки")
+        self.section_tabs.addTab("Папки")
         self.section_tabs.addTab("Clipboard")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
@@ -411,7 +412,6 @@ class AppLauncher(QMainWindow):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             suffix = Path(file_path).suffix.lower()
-
             if self.is_macro_section:
                 if os.path.exists(file_path):
                     name = Path(file_path).stem
@@ -433,6 +433,9 @@ class AppLauncher(QMainWindow):
                 continue
 
             if os.path.isdir(file_path):
+                if not self.is_folders_section:
+                    logger.warning("Игнорирована папка при перетаскивании вне вкладки папок: %s", file_path)
+                    continue
                 name = Path(file_path).name
                 app_data = {
                     "name": name,
@@ -446,6 +449,10 @@ class AppLauncher(QMainWindow):
                 self.service.add_app(app_data)
                 added = True
                 logger.info("Добавлена папка из перетаскивания: %s", file_path)
+                continue
+
+            if self.is_folders_section:
+                logger.warning("Игнорирован файл при перетаскивании во вкладке папок: %s", file_path)
                 continue
 
             if suffix in {".url", ".lnk"} and os.path.exists(file_path):
@@ -500,6 +507,8 @@ class AppLauncher(QMainWindow):
             self.add_macro()
         elif self.is_links_section:
             self.add_link()
+        elif self.is_folders_section:
+            self.add_folder()
         else:
             self.add_app()
 
@@ -508,6 +517,8 @@ class AppLauncher(QMainWindow):
             self.clear_all_macros()
         elif self.is_links_section:
             self.clear_all_links()
+        elif self.is_folders_section:
+            self.clear_all_folders()
         else:
             self.clear_all_apps()
 
@@ -548,6 +559,26 @@ class AppLauncher(QMainWindow):
             self.schedule_save()
             self.refresh_view()
             logger.info("Добавлена ссылка: %s", data["name"])
+
+    def add_folder(self):
+        dialog = AddAppDialog(self, groups=self.groups, default_type="folder")
+        if dialog.exec():
+            data, error = validate_app_data(dialog.get_data())
+            if error:
+                QMessageBox.warning(self, "Ошибка", error)
+                return
+            if not data:
+                return
+            data["custom_icon"] = bool(data.get("icon_path"))
+            if data.get("group") not in self.groups:
+                self.groups.append(data.get("group", DEFAULT_GROUP))
+                self.setup_tabs()
+            created = self.service.add_app(data)
+            if data.get("icon_path"):
+                self.icon_service.start_extraction(created)
+            self.schedule_save()
+            self.refresh_view()
+            logger.info("Добавлена папка: %s", data["name"])
 
     def edit_app(self, app_data: dict):
         for app in self.repository.apps:
@@ -695,6 +726,27 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
         logger.info("Удалены все ссылки")
 
+    def clear_all_folders(self):
+        folders = [app for app in self.repository.apps if app.get("type") == "folder"]
+        if not folders:
+            QMessageBox.information(self, "Удалить все", "Список папок уже пуст.")
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Удалить все",
+            "Удалить все папки из лаунчера?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        for app in folders:
+            self.icon_service.cleanup_icon_cache(app.get("icon_path"))
+        self.service.clear_folders()
+        self.schedule_save()
+        self.refresh_view()
+        logger.info("Удалены все папки")
+
     def toggle_favorite(self, app_data: dict):
         if not self.service.toggle_favorite(app_data["path"]):
             return
@@ -770,7 +822,9 @@ class AppLauncher(QMainWindow):
         app_data.update(updated)
         self.schedule_save()
         self.refresh_view()
-        if self._tile_launch_should_hide:
+        if app_data.get("type") == "folder":
+            self._minimize_to_tray()
+        elif self._tile_launch_should_hide:
             self._minimize_to_tray()
 
     def launch_macro(self, macro_data: dict):
@@ -818,11 +872,17 @@ class AppLauncher(QMainWindow):
                 for app in self.service.filtered_apps(query, current_group)
                 if app.get("type") == "url"
             ]
+        elif self.is_folders_section:
+            filtered = [
+                app
+                for app in self.service.filtered_apps(query, current_group)
+                if app.get("type") == "folder"
+            ]
         else:
             filtered = [
                 app
                 for app in self.service.filtered_apps(query, current_group)
-                if app.get("type") != "url"
+                if app.get("type") not in {"url", "folder"}
             ]
         self._sync_view_toggle()
 
@@ -899,11 +959,17 @@ class AppLauncher(QMainWindow):
                 for app in self.service.filtered_apps(self.search_input.text(), current_group)
                 if app.get("type") == "url"
             ]
+        elif self.is_folders_section:
+            filtered = [
+                app
+                for app in self.service.filtered_apps(self.search_input.text(), current_group)
+                if app.get("type") == "folder"
+            ]
         else:
             filtered = [
                 app
                 for app in self.service.filtered_apps(self.search_input.text(), current_group)
-                if app.get("type") != "url"
+                if app.get("type") not in {"url", "folder"}
             ]
         if not filtered:
             return
@@ -956,6 +1022,8 @@ class AppLauncher(QMainWindow):
             return "macros"
         if self.is_links_section:
             return "links"
+        if self.is_folders_section:
+            return "folders"
         return "apps"
 
     @property
@@ -996,6 +1064,10 @@ class AppLauncher(QMainWindow):
             self.search_input.setPlaceholderText("Поиск ссылок...")
             self.add_btn.setText("Добавить ссылку")
             self.clear_btn.setText("Удалить все ссылки")
+        elif self.is_folders_section:
+            self.search_input.setPlaceholderText("Поиск папок...")
+            self.add_btn.setText("Добавить папку")
+            self.clear_btn.setText("Удалить все папки")
         else:
             self.search_input.setPlaceholderText("Поиск приложений...")
             self.add_btn.setText("Добавить приложение")
@@ -1141,8 +1213,12 @@ class AppLauncher(QMainWindow):
         return self.section_tabs.currentIndex() == 2
 
     @property
-    def is_clipboard_section(self) -> bool:
+    def is_folders_section(self) -> bool:
         return self.section_tabs.currentIndex() == 3
+
+    @property
+    def is_clipboard_section(self) -> bool:
+        return self.section_tabs.currentIndex() == 4
 
     def edit_item(self, item_data: dict):
         if self.is_macro_section:
