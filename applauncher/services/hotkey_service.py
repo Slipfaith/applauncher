@@ -27,13 +27,11 @@ class HotkeyService(QObject):
             import keyboard  # type: ignore
 
             self._keyboard_module = keyboard
-            self._backend = "keyboard"
-        elif importlib.util.find_spec("pynput") is not None:
+        if importlib.util.find_spec("pynput") is not None:
             from pynput import keyboard as pynput_keyboard  # type: ignore
 
             self._pynput_keyboard = pynput_keyboard
-            self._backend = "pynput"
-        else:
+        if not self._keyboard_module and not self._pynput_keyboard:
             logger.warning("Hotkey backend unavailable (install keyboard or pynput).")
 
     @property
@@ -46,30 +44,43 @@ class HotkeyService(QObject):
             return False
         self.unregister_hotkey()
         self._current_hotkey = hotkey
-        if self._backend == "keyboard" and self._keyboard_module:
+        if self._keyboard_module:
             key_combo = self._normalize_keyboard_hotkey(hotkey)
-            self._hotkey_id = self._keyboard_module.add_hotkey(key_combo, self.hotkey_activated.emit)
-            logger.info("Registered global hotkey via keyboard: %s", key_combo)
-            return True
-        if self._backend == "pynput" and self._pynput_keyboard:
+            try:
+                self._hotkey_id = self._keyboard_module.add_hotkey(
+                    key_combo, self.hotkey_activated.emit
+                )
+                self._backend = "keyboard"
+                logger.info("Registered global hotkey via keyboard: %s", key_combo)
+                return True
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning("Keyboard hotkey registration failed: %s", exc)
+                self._hotkey_id = None
+        if self._pynput_keyboard:
             key_combo = self._normalize_pynput_hotkey(hotkey)
-            self._listener = self._pynput_keyboard.GlobalHotKeys({key_combo: self._emit_hotkey})
-            self._listener.start()
-            logger.info("Registered global hotkey via pynput: %s", key_combo)
-            return True
-        logger.warning("Failed to register global hotkey: no backend")
+            try:
+                self._listener = self._pynput_keyboard.GlobalHotKeys({key_combo: self._emit_hotkey})
+                self._listener.start()
+                self._backend = "pynput"
+                logger.info("Registered global hotkey via pynput: %s", key_combo)
+                return True
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning("Pynput hotkey registration failed: %s", exc)
+                self._listener = None
+        logger.warning("Failed to register global hotkey: no backend available")
         return False
 
     def unregister_hotkey(self) -> None:
-        if self._backend == "keyboard" and self._keyboard_module and self._hotkey_id is not None:
+        if self._keyboard_module and self._hotkey_id is not None:
             try:
                 self._keyboard_module.remove_hotkey(self._hotkey_id)
             except KeyError:
                 pass
             self._hotkey_id = None
-        if self._backend == "pynput" and self._listener is not None:
+        if self._listener is not None:
             self._listener.stop()
             self._listener = None
+        self._backend = None
 
     def _emit_hotkey(self) -> None:
         self.hotkey_activated.emit()
