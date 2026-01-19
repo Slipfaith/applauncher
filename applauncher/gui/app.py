@@ -380,13 +380,16 @@ class AppLauncher(QMainWindow):
             self.settings_dialog = SettingsDialog(
                 self.service.global_hotkey,
                 self.service.window_opacity,
+                self._tile_size,
                 self,
             )
             self.settings_dialog.hotkey_widget.hotkeyChanged.connect(self.update_hotkey)
             self.settings_dialog.opacityChanged.connect(self.update_opacity)
+            self.settings_dialog.tileSizeChanged.connect(self.update_tile_size)
         else:
             self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
             self.settings_dialog.set_opacity(self.service.window_opacity)
+            self.settings_dialog.set_tile_size(self._tile_size)
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
@@ -1113,6 +1116,8 @@ class AppLauncher(QMainWindow):
         error = self.service.load_state()
         if error:
             QMessageBox.warning(self, "Ошибка конфигурации", error)
+        self._tile_size = tuple(self.service.tile_size)
+        self._grid_columns = 0
         self.setWindowOpacity(self.service.window_opacity)
         self.setup_tabs()
         self.sync_section_controls()
@@ -1121,6 +1126,18 @@ class AppLauncher(QMainWindow):
     def update_opacity(self, value: float) -> None:
         self.service.window_opacity = value
         self.setWindowOpacity(value)
+        self.schedule_save()
+
+    def update_tile_size(self, tile_size: tuple[int, int]) -> None:
+        if tuple(tile_size) == tuple(self._tile_size):
+            return
+        self._tile_size = tuple(tile_size)
+        self.service.tile_size = tuple(tile_size)
+        self._grid_columns = 0
+        if self.view_mode == "grid":
+            self._update_grid_layout()
+            self._refresh_grid_tile_sizes()
+            self.grid_layout.invalidate()
         self.schedule_save()
 
     def schedule_save(self):
@@ -1394,16 +1411,11 @@ class AppLauncher(QMainWindow):
         spacing = self.grid_layout.horizontalSpacing()
         margin = self.grid_layout.contentsMargins().left()
         usable_width = max(1, available_width - (margin * 2))
-        min_tile_width = TOKENS.sizes.grid_button[0]
-        columns = max(1, int((usable_width + spacing) / (min_tile_width + spacing)))
-        columns = max(2, columns)
+        tile_width = max(1, int(self._tile_size[0]))
+        columns = max(1, int((usable_width + spacing) / (tile_width + spacing)))
         if columns == self._grid_columns:
             return False
         self._grid_columns = columns
-        total_spacing = spacing * (columns - 1)
-        tile_width = max(1, int((usable_width - total_spacing) / columns))
-        tile_height = int(tile_width * TOKENS.sizes.grid_button[1] / TOKENS.sizes.grid_button[0])
-        self._tile_size = (tile_width, tile_height)
         return True
 
     def _refresh_grid_tile_sizes(self) -> None:

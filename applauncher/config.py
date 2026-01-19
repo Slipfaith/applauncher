@@ -21,6 +21,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macro_view_mode": "grid",
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
+    "tile_size": [120, 96],
 }
 
 
@@ -46,6 +47,17 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         filtered = [group for group in groups if group not in {".vbs", ".vba", ".py"}]
         return filtered or default.copy()
 
+    def normalize_tile_size(value: Any, default: tuple[int, int]) -> list[int]:
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            try:
+                width = int(value[0])
+                height = int(value[1])
+            except (TypeError, ValueError):
+                return list(default)
+            if width > 0 and height > 0:
+                return [width, height]
+        return list(default)
+
     if not isinstance(data, dict):
         return {
             "apps": normalize_list(data, []),
@@ -56,6 +68,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
+            "tile_size": DEFAULT_CONFIG["tile_size"].copy(),
         }
     apps = normalize_list(data.get("apps"), [])
     groups = normalize_groups(data.get("groups"), DEFAULT_CONFIG["groups"])
@@ -65,6 +78,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
+    tile_size = normalize_tile_size(data.get("tile_size"), tuple(DEFAULT_CONFIG["tile_size"]))
     return {
         "apps": apps,
         "groups": groups,
@@ -74,6 +88,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "macro_view_mode": macro_view_mode,
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,
+        "tile_size": tile_size,
     }
 
 

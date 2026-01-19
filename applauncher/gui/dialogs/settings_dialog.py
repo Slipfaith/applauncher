@@ -17,11 +17,19 @@ from ..widgets.hotkey_settings_widget import HotkeySettingsWidget
 
 class SettingsDialog(QDialog):
     opacityChanged = Signal(float)
+    tileSizeChanged = Signal(tuple)
 
-    def __init__(self, current_hotkey: str, current_opacity: float, parent=None) -> None:
+    def __init__(
+        self,
+        current_hotkey: str,
+        current_opacity: float,
+        current_tile_size: tuple[int, int],
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Настройки")
         self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
+        self._tile_ratio = self._resolve_ratio(current_tile_size)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(
@@ -48,6 +56,22 @@ class SettingsDialog(QDialog):
         opacity_row.addWidget(self.opacity_value)
         layout.addLayout(opacity_row)
 
+        tile_label = QLabel("Размер плиток")
+        layout.addWidget(tile_label)
+
+        tile_row = QHBoxLayout()
+        self.tile_slider = QSlider(Qt.Horizontal)
+        self.tile_slider.setRange(80, 200)
+        self.tile_slider.setValue(self._resolve_tile_width(current_tile_size))
+        self.tile_slider.valueChanged.connect(self._on_tile_size_changed)
+        tile_row.addWidget(self.tile_slider)
+
+        self.tile_value = QLabel(self._format_tile_size(self.tile_slider.value()))
+        self.tile_value.setFixedWidth(72)
+        self.tile_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        tile_row.addWidget(self.tile_value)
+        layout.addLayout(tile_row)
+
         self.hotkey_widget = HotkeySettingsWidget(current_hotkey, self)
         layout.addWidget(self.hotkey_widget)
 
@@ -69,12 +93,38 @@ class SettingsDialog(QDialog):
         self.opacity_slider.blockSignals(False)
         self.opacity_value.setText(self._format_opacity(percent))
 
+    def set_tile_size(self, tile_size: tuple[int, int]) -> None:
+        width = self._resolve_tile_width(tile_size)
+        self.tile_slider.blockSignals(True)
+        self.tile_slider.setValue(width)
+        self.tile_slider.blockSignals(False)
+        self.tile_value.setText(self._format_tile_size(width))
+
     def _on_opacity_changed(self, percent: int) -> None:
         self.opacity_value.setText(self._format_opacity(percent))
         self.opacityChanged.emit(percent / 100.0)
 
+    def _on_tile_size_changed(self, width: int) -> None:
+        self.tile_value.setText(self._format_tile_size(width))
+        height = max(1, round(width * self._tile_ratio))
+        self.tileSizeChanged.emit((width, height))
+
     def _format_opacity(self, percent: int) -> str:
         return f"{percent}%"
 
+    def _format_tile_size(self, width: int) -> str:
+        height = max(1, round(width * self._tile_ratio))
+        return f"{width}×{height}"
+
     def _opacity_to_percent(self, value: float) -> int:
         return max(50, min(100, round(value * 100)))
+
+    def _resolve_ratio(self, tile_size: tuple[int, int]) -> float:
+        width, height = tile_size
+        if width > 0 and height > 0:
+            return height / width
+        return TOKENS.sizes.grid_button[1] / TOKENS.sizes.grid_button[0]
+
+    def _resolve_tile_width(self, tile_size: tuple[int, int]) -> int:
+        width = tile_size[0] if tile_size else TOKENS.sizes.grid_button[0]
+        return max(80, min(200, int(width)))
