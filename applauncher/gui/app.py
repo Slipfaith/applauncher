@@ -41,6 +41,7 @@ from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
 from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
+from ..config import resolve_app_icon_path
 from ..services.clipboard_service import ClipboardService
 from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
@@ -96,6 +97,7 @@ class GroupTabBar(QTabBar):
 class AppLauncher(QMainWindow):
     def __init__(self):
         super().__init__()
+        self._app_icon = self._resolve_app_icon()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("mainWindow")
@@ -326,11 +328,13 @@ class AppLauncher(QMainWindow):
             return
 
         self.tray_icon = QSystemTrayIcon(self)
-
-        pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
-        pixmap.fill(QColor(TOKENS.colors.accent))
-        icon = QIcon(pixmap)
-        self.tray_icon.setIcon(icon)
+        if self._app_icon is not None:
+            self.tray_icon.setIcon(self._app_icon)
+        else:
+            pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
+            pixmap.fill(QColor(TOKENS.colors.accent))
+            icon = QIcon(pixmap)
+            self.tray_icon.setIcon(icon)
 
         tray_menu = QMenu()
 
@@ -1429,9 +1433,23 @@ class AppLauncher(QMainWindow):
     def _grid_icon_size(self) -> int:
         return max(24, int(self._tile_size[0] * 0.4))
 
+    def _resolve_app_icon(self) -> QIcon | None:
+        icon_path = resolve_app_icon_path()
+        if icon_path and os.path.exists(icon_path):
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
+                return icon
+        return None
+
 
 def run_app():
     app = QApplication([])
+    app_icon_path = resolve_app_icon_path()
+    if app_icon_path and os.path.exists(app_icon_path):
+        app_icon = QIcon(app_icon_path)
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
     app.setStyle("Fusion")
     tray_available = QSystemTrayIcon.isSystemTrayAvailable()
     app.setQuitOnLastWindowClosed(not tray_available)
