@@ -25,6 +25,7 @@ class LauncherService:
         self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
         self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
+        self.tile_size = tuple(DEFAULT_CONFIG["tile_size"])
 
     @property
     def version(self) -> int:
@@ -56,6 +57,7 @@ class LauncherService:
         self.macro_view_mode = data.get("macro_view_mode", self.macro_view_mode)
         self.global_hotkey = data.get("global_hotkey", self.global_hotkey)
         self.window_opacity = data.get("window_opacity", self.window_opacity)
+        self.tile_size = tuple(data.get("tile_size", self.tile_size))
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
             if group_name not in self.groups:
@@ -113,6 +115,7 @@ class LauncherService:
             "macro_view_mode": self.macro_view_mode,
             "global_hotkey": self.global_hotkey,
             "window_opacity": self.window_opacity,
+            "tile_size": list(self.tile_size),
         }
 
     def persist_config(self) -> Optional[str]:
