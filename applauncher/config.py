@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -155,6 +156,15 @@ def resolve_icons_cache_dir(folder_name: str = "launcher_icons") -> str:
     cache_dir = base_dir / APP_NAME / folder_name
     cache_dir.mkdir(parents=True, exist_ok=True)
     return str(cache_dir)
+
+
+def resolve_app_icon_path(filename: str = "sliplaun.ico") -> str:
+    """Resolve the path to the application icon for window and tray usage."""
+    if getattr(sys, "frozen", False):
+        base_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    else:
+        base_dir = Path(__file__).resolve().parent.parent
+    return str(base_dir / filename)
 
 
 def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None:
