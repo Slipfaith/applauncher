@@ -73,7 +73,10 @@ class HotkeyCaptureDialog(QDialog):
         if key in {Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta}:
             self._update_display(modifiers, None)
             return
-        key_name = QKeySequence(key).toString()
+        if key == Qt.Key_Space:
+            key_name = "Space"
+        else:
+            key_name = QKeySequence(key).toString()
         hotkey = self._format_hotkey(modifiers, key_name)
         self._update_hotkey(hotkey)
 
