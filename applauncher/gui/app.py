@@ -39,7 +39,7 @@ from .dialogs import AddAppDialog, AddMacroDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, TitleBar, UniversalSearchWidget
+from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
 from ..config import resolve_app_icon_path
 from ..services.clipboard_service import ClipboardService
@@ -187,6 +187,7 @@ class AppLauncher(QMainWindow):
         self.section_tabs.addTab("Макросы")
         self.section_tabs.addTab("Ссылки")
         self.section_tabs.addTab("Папки")
+        self.section_tabs.addTab("Заметки")
         self.section_tabs.addTab("Clipboard")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
@@ -311,6 +312,9 @@ class AppLauncher(QMainWindow):
         content_layout.addWidget(self.scroll_area)
 
         self.content_stack.addWidget(launcher_widget)
+        self.notes_widget = NotesWidget(self.service)
+        self.notes_widget.notesChanged.connect(self.schedule_save)
+        self.content_stack.addWidget(self.notes_widget)
         self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
         self.content_stack.addWidget(self.clipboard_widget)
 
@@ -1123,6 +1127,7 @@ class AppLauncher(QMainWindow):
         self._tile_size = tuple(self.service.tile_size)
         self._grid_columns = 0
         self.setWindowOpacity(self.service.window_opacity)
+        self.notes_widget.reload_notes()
         self.setup_tabs()
         self.sync_section_controls()
         self._last_render_state = None
@@ -1201,6 +1206,9 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
 
     def on_section_changed(self, _index: int):
+        if self.is_notes_section:
+            self.content_stack.setCurrentWidget(self.notes_widget)
+            return
         if self.is_clipboard_section:
             self.content_stack.setCurrentWidget(self.clipboard_widget)
             return
@@ -1373,6 +1381,10 @@ class AppLauncher(QMainWindow):
 
     @property
     def is_clipboard_section(self) -> bool:
+        return self.section_tabs.currentIndex() == 5
+
+    @property
+    def is_notes_section(self) -> bool:
         return self.section_tabs.currentIndex() == 4
 
     def edit_item(self, item_data: dict):
