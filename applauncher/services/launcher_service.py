@@ -7,6 +7,7 @@ from typing import Optional
 
 from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
 from ..repository import AppRepository, DEFAULT_GROUP
+from .notes_service import NotesRepository
 from .validation import soft_validate_app_data, soft_validate_macro_data
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class LauncherService:
         self.config_file = config_file or resolve_config_path()
         self.repository = repository or AppRepository()
         self.macro_repository = AppRepository(default_group=DEFAULT_GROUP, all_group=False)
+        self.notes_repository = NotesRepository()
         self.groups: list[str] = [DEFAULT_GROUP]
         self.macro_groups: list[str] = DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = DEFAULT_CONFIG["view_mode"]
@@ -34,6 +36,10 @@ class LauncherService:
     @property
     def macro_version(self) -> int:
         return self.macro_repository.version
+
+    @property
+    def notes_version(self) -> int:
+        return self.notes_repository.version
 
     def load_state(self) -> Optional[str]:
         try:
@@ -51,6 +57,8 @@ class LauncherService:
         macros = self._validate_loaded_items(macros, soft_validate_macro_data)
         self._mark_missing_paths(macros)
         self.macro_repository.set_apps(macros)
+        notes = data.get("notes", [])
+        self.notes_repository.set_notes(notes)
         self.groups = data.get("groups", self.groups) or [DEFAULT_GROUP]
         self.macro_groups = data.get("macro_groups", self.macro_groups) or DEFAULT_CONFIG["macro_groups"].copy()
         self.view_mode = data.get("view_mode", self.view_mode)
@@ -113,6 +121,7 @@ class LauncherService:
             "macros": self.macro_repository.apps,
             "macro_groups": self.macro_groups or DEFAULT_CONFIG["macro_groups"].copy(),
             "macro_view_mode": self.macro_view_mode,
+            "notes": self.notes_repository.notes,
             "global_hotkey": self.global_hotkey,
             "window_opacity": self.window_opacity,
             "tile_size": list(self.tile_size),
@@ -171,6 +180,15 @@ class LauncherService:
 
     def clear_macros(self) -> None:
         self.macro_repository.clear_apps()
+
+    def add_note(self, note_data: dict) -> dict:
+        return self.notes_repository.add_note(note_data)
+
+    def update_note(self, note_id: str, updated_data: dict) -> Optional[dict]:
+        return self.notes_repository.update_note(note_id, updated_data)
+
+    def delete_note(self, note_id: str) -> bool:
+        return self.notes_repository.delete_note(note_id)
 
     def toggle_favorite(self, app_path: str) -> Optional[dict]:
         target = next((item for item in self.repository.apps if item["path"] == app_path), None)

@@ -457,6 +457,41 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         color: {colors.text_primary};
     }}
 
+    QWidget[role=\"noteTile\"] {{
+        background-color: {colors.surface_alt};
+        border: 1px solid {colors.border_soft};
+        border-radius: {radii.lg}px;
+    }}
+
+    QLabel[role=\"noteTitle\"] {{
+        font-size: {typography.font_size_md}px;
+        font-weight: {typography.weight_semibold};
+    }}
+
+    QToolButton[role=\"noteDelete\"] {{
+        background-color: transparent;
+        border: none;
+        color: {colors.text_muted};
+        font-size: {typography.font_size_md}px;
+    }}
+
+    QToolButton[role=\"noteDelete\"]:hover {{
+        color: {colors.danger};
+    }}
+
+    QTextEdit[role=\"noteText\"] {{
+        background-color: {colors.surface};
+        border: 1px solid {colors.border};
+        border-radius: {radii.md}px;
+        padding: {spacing.sm}px;
+        color: {colors.text_primary};
+    }}
+
+    QTextEdit[role=\"noteText\"]:focus {{
+        border: 2px solid {colors.accent};
+        padding: {spacing.xs}px;
+    }}
+
     QScrollArea {{
         background: transparent;
         border: none;

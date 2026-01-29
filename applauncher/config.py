@@ -20,6 +20,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macros": [],
     "macro_groups": ["Общее"],
     "macro_view_mode": "grid",
+    "notes": [],
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
     "tile_size": [120, 96],
@@ -67,6 +68,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "macros": [],
             "macro_groups": DEFAULT_CONFIG["macro_groups"].copy(),
             "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
+            "notes": [],
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
             "tile_size": DEFAULT_CONFIG["tile_size"].copy(),
@@ -77,6 +79,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macros = normalize_list(data.get("macros"), [])
     macro_groups = normalize_macro_groups(data.get("macro_groups"), DEFAULT_CONFIG["macro_groups"])
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
+    notes = normalize_list(data.get("notes"), [])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
     tile_size = normalize_tile_size(data.get("tile_size"), tuple(DEFAULT_CONFIG["tile_size"]))
@@ -87,6 +90,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "macros": macros,
         "macro_groups": macro_groups,
         "macro_view_mode": macro_view_mode,
+        "notes": notes,
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,
         "tile_size": tile_size,
