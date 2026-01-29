@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QBrush, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -137,8 +137,9 @@ class NoteTextEdit(QTextEdit):
 
     def _apply_mask_format(self) -> None:
         selections = []
-        overlay_color = QColor(28, 32, 36)
-        text_shadow = QColor(245, 245, 245, 50)
+        mask_dot_color = QColor(170, 170, 170)
+        mask_text_color = QColor(0, 0, 0, 0)
+        mask_brush = QBrush(mask_dot_color, Qt.Dense6Pattern)
         for item in self._masked_ranges:
             key = (item.start, item.end)
             if key in self._revealed_ranges:
@@ -147,8 +148,8 @@ class NoteTextEdit(QTextEdit):
             cursor.setPosition(item.start)
             cursor.setPosition(item.end, QTextCursor.KeepAnchor)
             fmt = QTextCharFormat()
-            fmt.setBackground(overlay_color)
-            fmt.setForeground(text_shadow)
+            fmt.setBackground(mask_brush)
+            fmt.setForeground(mask_text_color)
             selection = QTextEdit.ExtraSelection()
             selection.cursor = cursor
             selection.format = fmt
