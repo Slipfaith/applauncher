@@ -220,9 +220,8 @@ class NoteTile(QWidget):
         self.note_id = note_data["id"]
         self._collapsed = bool(note_data.get("collapsed", False))
         self.setProperty("role", "noteTile")
-        self.setMinimumWidth(220)
-        self.setMaximumWidth(320)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.setFixedWidth(320)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._pending_collapse = False
         self._animation = QPropertyAnimation(self, b"maximumHeight")
         self._animation.setDuration(250)
