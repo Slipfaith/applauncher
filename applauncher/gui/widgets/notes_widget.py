@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QBrush, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QTextEdit,
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..layouts import FlowLayout
-from ..styles import TOKENS, apply_shadow
+from ..styles import TOKENS
 from ...services.launcher_service import LauncherService
 
 
@@ -216,6 +217,7 @@ class NoteTile(QWidget):
     def __init__(self, note_data: dict, parent=None) -> None:
         super().__init__(parent)
         self.note_id = note_data["id"]
+        self._collapsed = bool(note_data.get("collapsed", False))
         self.setProperty("role", "noteTile")
         self.setMinimumSize(220, 170)
         self.setMaximumWidth(320)
@@ -226,30 +228,52 @@ class NoteTile(QWidget):
         self.setLayout(layout)
 
         header = QHBoxLayout()
-        title = QLabel("Заметка")
-        title.setProperty("role", "noteTitle")
+        toggle_btn = QToolButton()
+        toggle_btn.setCheckable(True)
+        toggle_btn.setChecked(not self._collapsed)
+        toggle_btn.setProperty("role", "noteToggle")
+        toggle_btn.toggled.connect(self._toggle_collapsed)
+        self._update_toggle_icon(toggle_btn, not self._collapsed)
+
+        title = QLineEdit(note_data.get("title", ""))
+        title.setPlaceholderText("Название заметки")
+        title.setProperty("role", "noteTitleInput")
+        title.textChanged.connect(self._emit_update)
         delete_btn = QToolButton()
         delete_btn.setText("✕")
         delete_btn.setProperty("role", "noteDelete")
         delete_btn.clicked.connect(lambda: self.deleteRequested.emit(self.note_id))
-        header.addWidget(title)
-        header.addStretch()
+        header.addWidget(toggle_btn)
+        header.addWidget(title, 1)
         header.addWidget(delete_btn)
         layout.addLayout(header)
 
         self.text_edit = NoteTextEdit(note_data.get("text", ""), note_data.get("masked_ranges", []))
         self.text_edit.textEdited.connect(self._emit_update)
         self.text_edit.maskedRangesChanged.connect(self._emit_update)
+        self.text_edit.setVisible(not self._collapsed)
         layout.addWidget(self.text_edit)
-        apply_shadow(self, TOKENS.shadows.floating)
+        self._title_input = title
+        self._toggle_btn = toggle_btn
 
     def _emit_update(self, *_args) -> None:
         payload = {
             "id": self.note_id,
+            "title": self._title_input.text().strip(),
             "text": self.text_edit.toPlainText(),
             "masked_ranges": self.text_edit.masked_ranges,
+            "collapsed": self._collapsed,
         }
         self.noteUpdated.emit(self.note_id, payload)
+
+    def _toggle_collapsed(self, expanded: bool) -> None:
+        self._collapsed = not expanded
+        self.text_edit.setVisible(expanded)
+        self._update_toggle_icon(self._toggle_btn, expanded)
+        self._emit_update()
+
+    def _update_toggle_icon(self, button: QToolButton, expanded: bool) -> None:
+        button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
 
 
 class NotesWidget(QWidget):
@@ -300,7 +324,7 @@ class NotesWidget(QWidget):
             self._add_tile(note)
 
     def add_note(self) -> None:
-        note = self.service.add_note({"text": "", "masked_ranges": []})
+        note = self.service.add_note({"title": "", "text": "", "masked_ranges": [], "collapsed": False})
         self._add_tile(note)
         self.notesChanged.emit()
 

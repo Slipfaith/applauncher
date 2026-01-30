@@ -53,16 +53,27 @@ class NotesRepository:
     def _with_defaults(self, note_data: dict, fallback: Optional[dict] = None) -> dict:
         prepared = {
             "id": fallback.get("id") if fallback else str(uuid4()),
+            "title": "",
             "text": "",
             "masked_ranges": [],
+            "collapsed": False,
         }
         if fallback:
-            prepared.update({"text": fallback.get("text", ""), "masked_ranges": fallback.get("masked_ranges", [])})
+            prepared.update(
+                {
+                    "title": fallback.get("title", ""),
+                    "text": fallback.get("text", ""),
+                    "masked_ranges": fallback.get("masked_ranges", []),
+                    "collapsed": fallback.get("collapsed", False),
+                }
+            )
         prepared.update(note_data)
         if not prepared.get("id"):
             prepared["id"] = str(uuid4())
+        prepared["title"] = prepared.get("title") or ""
         prepared["text"] = prepared.get("text") or ""
         prepared["masked_ranges"] = self._normalize_ranges(prepared.get("masked_ranges"))
+        prepared["collapsed"] = bool(prepared.get("collapsed", False))
         return prepared
 
     def _normalize_ranges(self, ranges: Optional[Iterable[dict]]) -> list[dict]:

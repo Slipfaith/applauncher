@@ -463,9 +463,23 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-radius: {radii.lg}px;
     }}
 
-    QLabel[role=\"noteTitle\"] {{
+    QLineEdit[role=\"noteTitleInput\"] {{
+        background-color: transparent;
+        border: none;
         font-size: {typography.font_size_md}px;
         font-weight: {typography.weight_semibold};
+        color: {colors.text_primary};
+        padding: 0px;
+    }}
+
+    QLineEdit[role=\"noteTitleInput\"]:focus {{
+        border-bottom: 1px solid {colors.accent};
+    }}
+
+    QToolButton[role=\"noteToggle\"] {{
+        background-color: transparent;
+        border: none;
+        color: {colors.text_muted};
     }}
 
     QToolButton[role=\"noteDelete\"] {{
