@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QBrush, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 
 from ..layouts import FlowLayout
@@ -219,15 +220,24 @@ class NoteTile(QWidget):
         self.note_id = note_data["id"]
         self._collapsed = bool(note_data.get("collapsed", False))
         self.setProperty("role", "noteTile")
-        self.setMinimumSize(220, 170)
+        self.setMinimumWidth(220)
         self.setMaximumWidth(320)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self._pending_collapse = False
+        self._animation = QPropertyAnimation(self, b"maximumHeight")
+        self._animation.setDuration(250)
+        self._animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._animation.finished.connect(self._on_animation_finished)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(TOKENS.spacing.md, TOKENS.spacing.md, TOKENS.spacing.md, TOKENS.spacing.md)
         layout.setSpacing(TOKENS.spacing.sm)
+        layout.setAlignment(Qt.AlignTop)
         self.setLayout(layout)
 
-        header = QHBoxLayout()
+        header_widget = QWidget()
+        header = QHBoxLayout(header_widget)
+        header.setContentsMargins(0, 0, 0, 0)
         toggle_btn = QToolButton()
         toggle_btn.setCheckable(True)
         toggle_btn.setChecked(not self._collapsed)
@@ -246,7 +256,7 @@ class NoteTile(QWidget):
         header.addWidget(toggle_btn)
         header.addWidget(title, 1)
         header.addWidget(delete_btn)
-        layout.addLayout(header)
+        layout.addWidget(header_widget)
 
         self.text_edit = NoteTextEdit(note_data.get("text", ""), note_data.get("masked_ranges", []))
         self.text_edit.textEdited.connect(self._emit_update)
@@ -255,6 +265,9 @@ class NoteTile(QWidget):
         layout.addWidget(self.text_edit)
         self._title_input = title
         self._toggle_btn = toggle_btn
+        self._header_widget = header_widget
+        if self._collapsed:
+            self.setMaximumHeight(self._collapsed_height())
 
     def _emit_update(self, *_args) -> None:
         payload = {
@@ -268,12 +281,38 @@ class NoteTile(QWidget):
 
     def _toggle_collapsed(self, expanded: bool) -> None:
         self._collapsed = not expanded
-        self.text_edit.setVisible(expanded)
         self._update_toggle_icon(self._toggle_btn, expanded)
+        self._animate_toggle(expanded)
         self._emit_update()
 
     def _update_toggle_icon(self, button: QToolButton, expanded: bool) -> None:
         button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+
+    def _collapsed_height(self) -> int:
+        margins = self.layout().contentsMargins()
+        return self._header_widget.sizeHint().height() + margins.top() + margins.bottom()
+
+    def _animate_toggle(self, expanded: bool) -> None:
+        self._animation.stop()
+        self._pending_collapse = not expanded
+        start_height = self.height()
+        if expanded:
+            self.text_edit.setVisible(True)
+            self.setMaximumHeight(self.sizeHint().height())
+            target_height = self.sizeHint().height()
+        else:
+            target_height = self._collapsed_height()
+        self._animation.setStartValue(start_height)
+        self._animation.setEndValue(target_height)
+        self._animation.start()
+
+    def _on_animation_finished(self) -> None:
+        if self._pending_collapse:
+            self.text_edit.setVisible(False)
+            self._pending_collapse = False
+            self.setMaximumHeight(self._collapsed_height())
+        else:
+            self.setMaximumHeight(16777215)
 
 
 class NotesWidget(QWidget):
