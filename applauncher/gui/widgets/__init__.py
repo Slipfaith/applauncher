@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QMimeData
+from PySide6.QtCore import Qt, QSize, QTimer, Signal, QMimeData
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from ..styles import TOKENS, apply_shadow
@@ -93,6 +93,42 @@ class AppButton(QPushButton):
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+
+        self._copy_btn = None
+        if app_type in {"url", "folder"}:
+            btn = QPushButton("📋", self)
+            btn.setFixedSize(22, 22)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip("Скопировать ссылку" if app_type == "url" else "Скопировать путь")
+            btn.setStyleSheet(
+                "QPushButton { background: rgba(0,0,0,0.05); border: none;"
+                " border-radius: 4px; font-size: 11px; padding: 0; }"
+                "QPushButton:hover { background: rgba(0,0,0,0.15); }"
+            )
+            btn.move(self.width() - 24, 2)
+            btn.clicked.connect(self._on_copy_clicked)
+            self._copy_btn = btn
+            self._copy_btn_default_style = btn.styleSheet()
+
+    def _on_copy_clicked(self):
+        self.copyLinkRequested.emit(self.app_data)
+        btn = self._copy_btn
+        if btn is None:
+            return
+        btn.setText("\u2713")
+        btn.setStyleSheet(
+            "QPushButton { background: rgba(34,197,94,0.25); border: none;"
+            " border-radius: 4px; font-size: 12px; padding: 0;"
+            " color: #16a34a; font-weight: bold; }"
+        )
+        QTimer.singleShot(800, self._reset_copy_btn)
+
+    def _reset_copy_btn(self):
+        btn = self._copy_btn
+        if btn is None:
+            return
+        btn.setText("\U0001f4cb")
+        btn.setStyleSheet(self._copy_btn_default_style)
 
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)

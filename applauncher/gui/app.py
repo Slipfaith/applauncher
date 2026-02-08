@@ -1,6 +1,7 @@
 """Main application window."""
 import os
 import logging
+import ctypes
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal, QPoint
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -51,6 +52,20 @@ from ..services.validation import (
 )
 
 logger = logging.getLogger(__name__)
+
+WM_NCHITTEST = 0x0084
+WM_NCLBUTTONDOWN = 0x00A1
+HTLEFT = 10
+HTRIGHT = 11
+HTTOP = 12
+HTTOPLEFT = 13
+HTTOPRIGHT = 14
+HTBOTTOM = 15
+HTBOTTOMLEFT = 16
+HTBOTTOMRIGHT = 17
+WM_NCCALCSIZE = 0x0083
+WS_THICKFRAME = 0x00040000
+GWL_STYLE = -16
 
 
 class GroupTabBar(QTabBar):
@@ -127,6 +142,10 @@ class AppLauncher(QMainWindow):
         container = QWidget()
         container.setObjectName("centralContainer")
         self.setCentralWidget(container)
+        self._resize_border = 8
+        app_instance = QApplication.instance()
+        if app_instance is not None:
+            app_instance.installEventFilter(self)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(
@@ -301,6 +320,18 @@ class AppLauncher(QMainWindow):
         self.setWindowOpacity(self.service.window_opacity)
         self.setup_shortcuts()
         self.refresh_view()
+        self._setup_native_resize()
+
+    def _setup_native_resize(self):
+        if os.name != "nt":
+            return
+        try:
+            hwnd = int(self.winId())
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+            style |= WS_THICKFRAME
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+        except Exception:
+            logger.warning("Не удалось установить WS_THICKFRAME для native resize")
 
     def create_tray_icon(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -385,6 +416,8 @@ class AppLauncher(QMainWindow):
         added = False
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
+            if os.name == "nt":
+                file_path = os.path.normpath(file_path)
             suffix = Path(file_path).suffix.lower()
 
             if self.is_macro_section:
@@ -564,12 +597,16 @@ class AppLauncher(QMainWindow):
                         return
                     previous_icon = app.get("icon_path")
                     previous_custom_icon = app.get("custom_icon", False)
+                    path_changed = updated.get("path") != app.get("path")
                     updated["usage_count"] = app.get("usage_count", 0)
                     updated["source"] = app.get("source", "manual")
                     if updated.get("icon_path") != previous_icon:
                         updated["custom_icon"] = bool(updated.get("icon_path"))
                     else:
                         updated["custom_icon"] = previous_custom_icon
+                    if path_changed and not updated.get("custom_icon", False):
+                        # Reset auto icon when target path changes; new icon will be extracted.
+                        updated["icon_path"] = ""
                     if updated.get("group") not in self.groups:
                         self.groups.append(updated.get("group", DEFAULT_GROUP))
                         self.setup_tabs()
@@ -779,7 +816,7 @@ class AppLauncher(QMainWindow):
             if error:
                 QMessageBox.warning(self, "Ошибка", error)
             return
-        if app_data.get("type") == "folder":
+        if self._should_collapse_after_app_launch(app_data):
             self._collapse_to_tray()
         updated = self.service.increment_usage(app_data["path"]) or app_data
         app_data.update(updated)
@@ -1050,11 +1087,23 @@ class AppLauncher(QMainWindow):
             return
         if self.tabs.tabText(index) == "+":
             text, ok = QInputDialog.getText(self, "Новая группа", "Название группы:")
-            if ok and text:
-                self.groups.append(text)
-                self.setup_tabs()
-                self.tabs.setCurrentIndex(self.tabs.count() - 2)
-                self.schedule_save()
+            target_index = 0
+            if ok:
+                group_name = text.strip()
+                if not group_name:
+                    QMessageBox.information(self, "Группа", "Название группы не может быть пустым.")
+                elif group_name == "+":
+                    QMessageBox.information(self, "Группа", "Имя '+' зарезервировано.")
+                elif group_name in self.groups:
+                    target_index = self.groups.index(group_name)
+                else:
+                    self.groups.append(group_name)
+                    self.setup_tabs()
+                    target_index = max(0, self.tabs.count() - 2)
+                    self.schedule_save()
+            self.tabs.setCurrentIndex(target_index)
+            self.refresh_view()
+            return
         self.refresh_view()
 
     def show_tab_context_menu(self, pos):
@@ -1108,6 +1157,155 @@ class AppLauncher(QMainWindow):
             self.view_toggle.setText("⧉")
             self.view_toggle.setToolTip("Сетка")
 
+    def _resize_edges_at(self, pos: QPoint) -> Qt.Edges:
+        border = max(4, int(self._resize_border))
+        x = pos.x()
+        y = pos.y()
+        w = self.width()
+        h = self.height()
+        if w <= 0 or h <= 0:
+            return Qt.Edges()
+
+        on_left = x <= border
+        on_right = x >= w - border
+        on_top = y <= border
+        on_bottom = y >= h - border
+
+        edges = Qt.Edges()
+        if on_left:
+            edges |= Qt.LeftEdge
+        if on_right:
+            edges |= Qt.RightEdge
+        if on_top:
+            edges |= Qt.TopEdge
+        if on_bottom:
+            edges |= Qt.BottomEdge
+        return edges
+
+    def _hit_test_resize(self, pos: QPoint) -> int | None:
+        edges = self._resize_edges_at(pos)
+        if (edges & Qt.TopEdge) and (edges & Qt.LeftEdge):
+            return HTTOPLEFT
+        if (edges & Qt.TopEdge) and (edges & Qt.RightEdge):
+            return HTTOPRIGHT
+        if (edges & Qt.BottomEdge) and (edges & Qt.LeftEdge):
+            return HTBOTTOMLEFT
+        if (edges & Qt.BottomEdge) and (edges & Qt.RightEdge):
+            return HTBOTTOMRIGHT
+        if edges & Qt.LeftEdge:
+            return HTLEFT
+        if edges & Qt.RightEdge:
+            return HTRIGHT
+        if edges & Qt.TopEdge:
+            return HTTOP
+        if edges & Qt.BottomEdge:
+            return HTBOTTOM
+        return None
+
+    def _hit_test_resize_native(self, screen_x: int, screen_y: int) -> int | None:
+        if os.name != "nt":
+            return None
+        rect = ctypes.wintypes.RECT()
+        hwnd = int(self.winId())
+        if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+        handle = self.windowHandle()
+        scale = float(handle.devicePixelRatio()) if handle is not None else 1.0
+        border = max(4, int(round(self._resize_border * scale)))
+
+        on_left = screen_x <= rect.left + border
+        on_right = screen_x >= rect.right - border
+        on_top = screen_y <= rect.top + border
+        on_bottom = screen_y >= rect.bottom - border
+
+        if on_top and on_left:
+            return HTTOPLEFT
+        if on_top and on_right:
+            return HTTOPRIGHT
+        if on_bottom and on_left:
+            return HTBOTTOMLEFT
+        if on_bottom and on_right:
+            return HTBOTTOMRIGHT
+        if on_left:
+            return HTLEFT
+        if on_right:
+            return HTRIGHT
+        if on_top:
+            return HTTOP
+        if on_bottom:
+            return HTBOTTOM
+        return None
+
+    def _resize_cursor_for_edges(self, edges: Qt.Edges):
+        if (edges & Qt.TopEdge) and (edges & Qt.LeftEdge):
+            return Qt.SizeFDiagCursor
+        if (edges & Qt.BottomEdge) and (edges & Qt.RightEdge):
+            return Qt.SizeFDiagCursor
+        if (edges & Qt.TopEdge) and (edges & Qt.RightEdge):
+            return Qt.SizeBDiagCursor
+        if (edges & Qt.BottomEdge) and (edges & Qt.LeftEdge):
+            return Qt.SizeBDiagCursor
+        if (edges & Qt.LeftEdge) or (edges & Qt.RightEdge):
+            return Qt.SizeHorCursor
+        if (edges & Qt.TopEdge) or (edges & Qt.BottomEdge):
+            return Qt.SizeVerCursor
+        return None
+
+    def eventFilter(self, obj, event):
+        if self.isMaximized():
+            return super().eventFilter(obj, event)
+        host_window = obj.window() if hasattr(obj, "window") else None
+        if host_window is None or host_window != self:
+            return super().eventFilter(obj, event)
+
+        etype = event.type()
+        if etype == QEvent.MouseMove:
+            global_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
+            edges = self._resize_edges_at(self.mapFromGlobal(global_pos))
+            cursor_shape = self._resize_cursor_for_edges(edges)
+            if cursor_shape is None:
+                if self.cursor().shape() in {
+                    Qt.SizeHorCursor,
+                    Qt.SizeVerCursor,
+                    Qt.SizeFDiagCursor,
+                    Qt.SizeBDiagCursor,
+                }:
+                    self.unsetCursor()
+            else:
+                self.setCursor(cursor_shape)
+        elif etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            global_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
+            local_pos = self.mapFromGlobal(global_pos)
+            edges = self._resize_edges_at(local_pos)
+            if edges != Qt.Edges():
+                window = self.windowHandle()
+                if window is not None and window.startSystemResize(edges):
+                    return True
+                hit = self._hit_test_resize_native(global_pos.x(), global_pos.y())
+                if hit is None:
+                    hit = self._hit_test_resize(local_pos)
+                if hit is not None and os.name == "nt":
+                    ctypes.windll.user32.ReleaseCapture()
+                    ctypes.windll.user32.SendMessageW(int(self.winId()), WM_NCLBUTTONDOWN, hit, 0)
+                    return True
+        return super().eventFilter(obj, event)
+
+    def nativeEvent(self, eventType, message):
+        if os.name == "nt":
+            try:
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+            except Exception:
+                return super().nativeEvent(eventType, message)
+            if msg.message == WM_NCCALCSIZE and msg.wParam:
+                return True, 0
+            if not self.isMaximized() and msg.message == WM_NCHITTEST:
+                x = ctypes.c_short(msg.lParam & 0xFFFF).value
+                y = ctypes.c_short((msg.lParam >> 16) & 0xFFFF).value
+                hit = self._hit_test_resize_native(x, y)
+                if hit is not None:
+                    return True, hit
+        return super().nativeEvent(eventType, message)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # FlowLayout automatically handles resizing
@@ -1117,6 +1315,14 @@ class AppLauncher(QMainWindow):
         shortcut.setContext(Qt.ApplicationShortcut)
         shortcut.activated.connect(self._on_hotkey_activated)
         self.toggle_shortcut = shortcut
+        search_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        search_shortcut.setContext(Qt.ApplicationShortcut)
+        search_shortcut.activated.connect(self.universal_search.open_search)
+        self.search_shortcut = search_shortcut
+        search_shortcut_meta = QShortcut(QKeySequence("Meta+K"), self)
+        search_shortcut_meta.setContext(Qt.ApplicationShortcut)
+        search_shortcut_meta.activated.connect(self.universal_search.open_search)
+        self.search_shortcut_meta = search_shortcut_meta
         self._register_hotkey()
 
     def _register_hotkey(self):
@@ -1136,12 +1342,16 @@ class AppLauncher(QMainWindow):
         self.show()
         self.activateWindow()
 
+    def _should_collapse_after_app_launch(self, app_data: dict) -> bool:
+        app_type = (app_data.get("type") or "exe").lower()
+        return app_type in {"exe", "lnk", "folder", "url"}
+
     def _collapse_to_tray(self) -> None:
         if self.tray_available and self.tray_icon:
             self.hide()
             self.tray_icon.showMessage(
                 "Лаунчер",
-                "Папка открыта, лаунчер свернут в трей.",
+                "Элемент открыт, лаунчер свернут в трей.",
                 QSystemTrayIcon.Information,
                 1500,
             )
@@ -1161,6 +1371,8 @@ class AppLauncher(QMainWindow):
                 if error:
                     QMessageBox.warning(self, "Ошибка", error)
                 return
+            if self._should_collapse_after_app_launch(result.payload):
+                self._collapse_to_tray()
             updated = self.service.increment_usage(result.payload["path"]) or result.payload
             result.payload.update(updated)
         self.universal_search.hide()

@@ -48,15 +48,29 @@ class HotkeyService(QObject):
         self._current_hotkey = hotkey
         if self._backend == "keyboard" and self._keyboard_module:
             key_combo = self._normalize_keyboard_hotkey(hotkey)
-            self._hotkey_id = self._keyboard_module.add_hotkey(key_combo, self.hotkey_activated.emit)
-            logger.info("Registered global hotkey via keyboard: %s", key_combo)
-            return True
+            try:
+                self._hotkey_id = self._keyboard_module.add_hotkey(
+                    key_combo, self.hotkey_activated.emit
+                )
+                logger.info("Registered global hotkey via keyboard: %s", key_combo)
+                return True
+            except Exception as err:  # pragma: no cover - backend dependent
+                logger.warning("Failed to register keyboard hotkey '%s': %s", key_combo, err)
+                self._hotkey_id = None
+                return False
         if self._backend == "pynput" and self._pynput_keyboard:
             key_combo = self._normalize_pynput_hotkey(hotkey)
-            self._listener = self._pynput_keyboard.GlobalHotKeys({key_combo: self._emit_hotkey})
-            self._listener.start()
-            logger.info("Registered global hotkey via pynput: %s", key_combo)
-            return True
+            try:
+                self._listener = self._pynput_keyboard.GlobalHotKeys(
+                    {key_combo: self._emit_hotkey}
+                )
+                self._listener.start()
+                logger.info("Registered global hotkey via pynput: %s", key_combo)
+                return True
+            except Exception as err:  # pragma: no cover - backend dependent
+                logger.warning("Failed to register pynput hotkey '%s': %s", key_combo, err)
+                self._listener = None
+                return False
         logger.warning("Failed to register global hotkey: no backend")
         return False
 
@@ -64,11 +78,14 @@ class HotkeyService(QObject):
         if self._backend == "keyboard" and self._keyboard_module and self._hotkey_id is not None:
             try:
                 self._keyboard_module.remove_hotkey(self._hotkey_id)
-            except KeyError:
-                pass
+            except Exception:  # pragma: no cover - backend dependent
+                logger.debug("Failed to unregister keyboard hotkey", exc_info=True)
             self._hotkey_id = None
         if self._backend == "pynput" and self._listener is not None:
-            self._listener.stop()
+            try:
+                self._listener.stop()
+            except Exception:  # pragma: no cover - backend dependent
+                logger.debug("Failed to stop pynput listener", exc_info=True)
             self._listener = None
 
     def _emit_hotkey(self) -> None:

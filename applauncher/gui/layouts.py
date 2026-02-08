@@ -1,5 +1,5 @@
 """Custom layouts for the launcher."""
-from PySide6.QtWidgets import QLayout, QSizePolicy
+from PySide6.QtWidgets import QLayout
 from PySide6.QtCore import Qt, QRect, QSize, QPoint
 
 
@@ -69,41 +69,52 @@ class FlowLayout(QLayout):
         size = QSize()
         for item in self._item_list:
             size = size.expandedTo(item.minimumSize())
-        size += QSize(2 * self.contentsMargins().top(), 2 * self.contentsMargins().top())
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
         return size
+
+    def _resolve_columns(self, available_width: int, min_spacing_x: int, max_item_width: int) -> int:
+        if available_width <= 0 or max_item_width <= 0:
+            return 1
+        columns = (available_width + min_spacing_x) // (max_item_width + min_spacing_x)
+        return max(1, int(columns))
 
     def _do_layout(self, rect, test_only):
         left, top, right, bottom = self.getContentsMargins()
         effective_rect = rect.adjusted(+left, +top, -right, -bottom)
-        x = effective_rect.x()
+        items = self._item_list
+        if not items:
+            return bottom
+
+        min_spacing_x = max(0, self.horizontalSpacing())
+        spacing_y = max(0, self.verticalSpacing())
+        hints = [item.sizeHint() for item in items]
+        max_item_width = max(hint.width() for hint in hints)
+        available_width = max(0, effective_rect.width())
+        max_columns = self._resolve_columns(available_width, min_spacing_x, max_item_width)
+        columns = min(len(items), max_columns)
+
+        if max_columns > 1:
+            full_row_width = max_item_width * max_columns
+            remaining = max(0, available_width - full_row_width)
+            grid_spacing_x = max(float(min_spacing_x), remaining / float(max_columns - 1))
+        else:
+            grid_spacing_x = 0.0
+
         y = effective_rect.y()
-        line_height = 0
+        index = 0
+        while index < len(items):
+            row_items = items[index : index + columns]
+            row_hints = hints[index : index + columns]
+            row_height = max(hint.height() for hint in row_hints)
 
-        spacing_x = self.horizontalSpacing()
-        spacing_y = self.verticalSpacing()
+            x = float(effective_rect.x())
+            for item, hint in zip(row_items, row_hints):
+                if not test_only:
+                    item.setGeometry(QRect(QPoint(int(round(x)), y), hint))
+                x += hint.width() + grid_spacing_x
 
-        for item in self._item_list:
-            wid = item.widget()
-            space_x = spacing_x
-            space_y = spacing_y
+            y += row_height + spacing_y
+            index += len(row_items)
 
-            # If the widget has a specific style or sizing policy, we might want to respect it
-            # But mostly we look at sizeHint()
-
-            hint = item.sizeHint()
-
-            next_x = x + hint.width() + space_x
-
-            if next_x - space_x > effective_rect.right() and line_height > 0:
-                x = effective_rect.x()
-                y = y + line_height + space_y
-                next_x = x + hint.width() + space_x
-                line_height = 0
-
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-
-            x = next_x
-            line_height = max(line_height, hint.height())
-
-        return y + line_height - effective_rect.y() + bottom
+        return y - effective_rect.y() - spacing_y + bottom

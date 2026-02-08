@@ -7,7 +7,7 @@ from typing import Optional
 
 from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
 from ..repository import AppRepository, DEFAULT_GROUP
-from .validation import soft_validate_app_data, soft_validate_macro_data
+from .validation import is_unc_path, soft_validate_app_data, soft_validate_macro_data
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,10 @@ class LauncherService:
                 item.pop("disabled_reason", None)
                 continue
             path_value = (item.get("path") or "").strip()
+            if item_type == "folder" and is_unc_path(path_value):
+                item["disabled"] = False
+                item.pop("disabled_reason", None)
+                continue
             if not path_value:
                 item["disabled"] = True
                 item["disabled_reason"] = "Путь не указан"

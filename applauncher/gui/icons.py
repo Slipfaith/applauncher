@@ -1,5 +1,6 @@
 """Helpers for extracting icons from executables."""
 import os
+import hashlib
 from pathlib import Path
 import logging
 
@@ -24,7 +25,9 @@ def extract_icon_from_exe(exe_path: str) -> str | None:
     """Extract an icon from an executable and return the stored path."""
     try:
         icons_dir = Path(resolve_icons_cache_dir())
-        icon_path = icons_dir / f"{Path(exe_path).stem}.png"
+        resolved_path = str(Path(exe_path).resolve())
+        digest = hashlib.sha1(resolved_path.lower().encode("utf-8", errors="ignore")).hexdigest()[:12]
+        icon_path = icons_dir / f"{Path(exe_path).stem}_{digest}.png"
 
         if HAS_WIN32:
             ico_x = win32api.GetSystemMetrics(win32con.SM_CXICON)
