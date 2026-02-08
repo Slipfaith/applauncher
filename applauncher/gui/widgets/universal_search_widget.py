@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.search_service import SearchResult, SearchService
+from ..tile_image.utils import load_icon_file
 
 
 class UniversalSearchWidget(QDialog):
@@ -93,7 +94,9 @@ class UniversalSearchWidget(QDialog):
     def _resolve_icon(self, result: SearchResult) -> QIcon:
         icon_path = result.payload.get("icon_path", "")
         if icon_path and os.path.exists(icon_path):
-            return QIcon(icon_path)
+            pixmap = load_icon_file(icon_path, preferred_size=64)
+            if not pixmap.isNull():
+                return QIcon(pixmap)
         return QIcon()
 
     def _on_return_pressed(self) -> None:

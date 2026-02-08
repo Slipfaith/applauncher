@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from .icons import extract_icon_with_fallback
+from .tile_image.utils import is_valid_png_file
 from ..config import resolve_icons_cache_dir
 from ..repository import AppRepository
 
@@ -66,6 +67,41 @@ class IconService(QObject):
                 icon_file.unlink()
             except OSError as err:  # pragma: no cover - filesystem dependent
                 logger.warning("Не удалось удалить иконку %s: %s", icon_file, err)
+
+    def cleanup_broken_png_cache(self) -> int:
+        """Remove malformed PNG files from icon cache and drop dead references."""
+        try:
+            icons_dir = Path(resolve_icons_cache_dir()).resolve()
+        except Exception:
+            return 0
+        if not icons_dir.exists():
+            return 0
+
+        removed_paths: set[Path] = set()
+        for icon_file in icons_dir.glob("*.png"):
+            try:
+                if not is_valid_png_file(str(icon_file)):
+                    icon_file.unlink(missing_ok=True)
+                    removed_paths.add(icon_file.resolve())
+            except OSError:
+                continue
+
+        if not removed_paths:
+            return 0
+
+        for app in self._repository.apps:
+            icon_path = (app.get("icon_path") or "").strip()
+            if not icon_path:
+                continue
+            try:
+                resolved_icon_path = Path(icon_path).resolve()
+            except Exception:
+                app["icon_path"] = ""
+                continue
+            if resolved_icon_path in removed_paths:
+                app["icon_path"] = ""
+
+        return len(removed_paths)
 
     def _on_icon_extracted(
         self, path: str, icon_path: str, worker: IconExtractionWorker | None = None

@@ -4,6 +4,7 @@ import logging
 
 from PySide6.QtWidgets import (
     QApplication,
+    QGraphicsDropShadowEffect,
     QLabel,
     QPushButton,
     QWidget,
@@ -11,10 +12,10 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, QTimer, Signal, QMimeData
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon
+from PySide6.QtCore import Qt, QSize, QTimer, Signal, QMimeData, QVariantAnimation, QEasingCurve
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QColor
 
-from ..styles import TOKENS, apply_shadow
+from ..styles import TOKENS
 from ...repository import DEFAULT_GROUP
 from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 from ..tile_image.utils import load_icon_file
@@ -72,24 +73,47 @@ class AppButton(QPushButton):
         self.setToolTip(display_name)
         self.setText("" if has_custom_icon else self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
-            if has_custom_icon:
-                pixmap = load_icon_file(icon_path)
-                if not pixmap.isNull():
+            pixmap = load_icon_file(icon_path)
+            if not pixmap.isNull():
+                if has_custom_icon:
                     frame = resolve_icon_frame(app_data)
                     fitted = render_framed_pixmap(pixmap, QSize(*TOKENS.sizes.grid_button), frame)
                     self.setIcon(QIcon(fitted))
                 else:
-                    self.setIcon(QIcon(icon_path))
-            else:
-                self.setIcon(QIcon(icon_path))
+                    self.setIcon(QIcon(pixmap))
         if has_custom_icon:
             self.setProperty("iconMode", "full")
-            self.setIconSize(QSize(*TOKENS.sizes.grid_button))
+            self._base_icon_size = QSize(*TOKENS.sizes.grid_button)
         else:
-            self.setIconSize(QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon))
+            self._base_icon_size = QSize(TOKENS.sizes.grid_icon, TOKENS.sizes.grid_icon)
+        self.setIconSize(self._base_icon_size)
+        self._pressed_icon_size = QSize(
+            max(16, int(round(self._base_icon_size.width() * 0.94))),
+            max(16, int(round(self._base_icon_size.height() * 0.94))),
+        )
         # Fixed size for FlowLayout consistency
         self.setFixedSize(*TOKENS.sizes.grid_button)
-        apply_shadow(self, TOKENS.shadows.raised)
+
+        shadow = TOKENS.shadows.raised
+        self._shadow_base_blur = float(shadow.blur)
+        self._shadow_base_x = float(shadow.offset_x)
+        self._shadow_base_y = float(shadow.offset_y)
+        self._shadow_base_color = QColor(shadow.color)
+
+        self._shadow_effect = QGraphicsDropShadowEffect(self)
+        self._shadow_effect.setBlurRadius(shadow.blur)
+        self._shadow_effect.setXOffset(shadow.offset_x)
+        self._shadow_effect.setYOffset(shadow.offset_y)
+        self._shadow_effect.setColor(self._shadow_base_color)
+        self.setGraphicsEffect(self._shadow_effect)
+
+        self._press_progress = 0.0
+        self._press_animation = QVariantAnimation(self)
+        self._press_animation.setDuration(90)
+        self._press_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._press_animation.setStartValue(0.0)
+        self._press_animation.setEndValue(0.0)
+        self._press_animation.valueChanged.connect(self._apply_press_progress)
 
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -130,6 +154,32 @@ class AppButton(QPushButton):
             return
         btn.setText("\U0001f4cb")
         btn.setStyleSheet(self._copy_btn_default_style)
+
+    def _apply_press_progress(self, value):
+        progress = max(0.0, min(1.0, float(value)))
+        self._press_progress = progress
+
+        icon_w = int(round(self._base_icon_size.width() + (self._pressed_icon_size.width() - self._base_icon_size.width()) * progress))
+        icon_h = int(round(self._base_icon_size.height() + (self._pressed_icon_size.height() - self._base_icon_size.height()) * progress))
+        self.setIconSize(QSize(max(1, icon_w), max(1, icon_h)))
+
+        blur = max(0.0, self._shadow_base_blur * (1.0 - 0.70 * progress))
+        x_offset = self._shadow_base_x * (1.0 - progress)
+        y_offset = self._shadow_base_y * (1.0 - progress)
+        color = QColor(self._shadow_base_color)
+        color.setAlpha(max(0, int(round(self._shadow_base_color.alpha() * (1.0 - 0.85 * progress)))))
+        self._shadow_effect.setBlurRadius(blur)
+        self._shadow_effect.setXOffset(x_offset)
+        self._shadow_effect.setYOffset(y_offset)
+        self._shadow_effect.setColor(color)
+
+    def _animate_press(self, target: float, duration_ms: int) -> None:
+        target = max(0.0, min(1.0, target))
+        self._press_animation.stop()
+        self._press_animation.setDuration(duration_ms)
+        self._press_animation.setStartValue(self._press_progress)
+        self._press_animation.setEndValue(target)
+        self._press_animation.start()
 
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)
@@ -224,6 +274,7 @@ class AppButton(QPushButton):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_start_pos = event.position().toPoint()
+            self._animate_press(1.0, 80)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -233,12 +284,25 @@ class AppButton(QPushButton):
         if (event.position().toPoint() - self._drag_start_pos).manhattanLength() < QApplication.startDragDistance():
             super().mouseMoveEvent(event)
             return
+        self._animate_press(0.0, 90)
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData("application/x-applauncher-app", self.app_data["path"].encode("utf-8"))
         drag.setMimeData(mime)
         drag.setPixmap(self.grab())
         drag.exec(Qt.MoveAction)
+        self._drag_start_pos = None
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._animate_press(0.0, 120)
+            self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        if not (QApplication.mouseButtons() & Qt.LeftButton):
+            self._animate_press(0.0, 120)
+        super().leaveEvent(event)
 
 
 class AppListItem(QWidget):
@@ -285,15 +349,13 @@ class AppListItem(QWidget):
         icon_label = QLabel()
         icon_path = app_data.get("icon_path", "")
         if icon_path and os.path.exists(icon_path):
-            if app_data.get("custom_icon"):
-                pixmap = load_icon_file(icon_path)
-                if not pixmap.isNull():
+            pixmap = load_icon_file(icon_path)
+            if not pixmap.isNull():
+                if app_data.get("custom_icon"):
                     frame = resolve_icon_frame(app_data)
                     icon_label.setPixmap(render_framed_pixmap(pixmap, QSize(32, 32), frame))
                 else:
-                    icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
-            else:
-                icon_label.setPixmap(QIcon(icon_path).pixmap(32, 32))
+                    icon_label.setPixmap(QIcon(pixmap).pixmap(32, 32))
         layout.addWidget(icon_label)
 
         text_layout = QVBoxLayout()

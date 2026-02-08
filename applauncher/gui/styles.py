@@ -351,7 +351,15 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     }}
 
     QPushButton[role="appTile"]:hover {{
-        background-color: {colors.surface_hover};
+        background-color: {colors.surface};
+        border-color: {colors.border};
+        color: {colors.text_primary};
+    }}
+
+    QPushButton[role="appTile"]:pressed {{
+        background-color: {colors.surface};
+        border-color: {colors.border};
+        color: {colors.text_primary};
     }}
 
     QWidget[role="listItem"] {{

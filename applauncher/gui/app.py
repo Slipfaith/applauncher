@@ -197,11 +197,17 @@ class AppLauncher(QMainWindow):
         settings_layout.setSpacing(TOKENS.spacing.sm)
         settings_bar.setLayout(settings_layout)
 
-        settings_button = QPushButton("⚙️ Настройки")
+        menu_button = QPushButton("Меню")
+        menu_button.setProperty("variant", "secondary")
+        menu_button.clicked.connect(self.show_top_menu)
+
+        settings_button = QPushButton("Настройки")
         settings_button.setProperty("variant", "secondary")
         settings_button.clicked.connect(self.show_settings)
         settings_layout.addStretch()
+        settings_layout.addWidget(menu_button)
         settings_layout.addWidget(settings_button)
+        self.menu_button = menu_button
         main_layout.addWidget(settings_bar)
 
         section_container = QWidget()
@@ -426,6 +432,20 @@ class AppLauncher(QMainWindow):
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
+
+    def show_top_menu(self):
+        menu = QMenu(self)
+        about_action = menu.addAction("О программе")
+        action = menu.exec(self.menu_button.mapToGlobal(self.menu_button.rect().bottomLeft()))
+        if action == about_action:
+            self.show_about_dialog()
+
+    def show_about_dialog(self):
+        QMessageBox.information(
+            self,
+            "О программе",
+            "version: 2.0\n from Sha by slipfaith",
+        )
 
     def closeEvent(self, event):
         if self.tray_available and self.tray_icon:
@@ -1015,12 +1035,15 @@ class AppLauncher(QMainWindow):
         error = self.service.load_state()
         if error:
             QMessageBox.warning(self, "Ошибка конфигурации", error)
+        removed_cache_icons = self.icon_service.cleanup_broken_png_cache()
         self.setWindowOpacity(self.service.window_opacity)
         self.notes_widget.set_notes(self.service.notes)
         self._notes_dirty = False
         self.setup_tabs()
         self.sync_section_controls()
         self._last_render_state = None
+        if removed_cache_icons:
+            self.schedule_save()
 
     def update_opacity(self, value: float) -> None:
         self.service.window_opacity = value
