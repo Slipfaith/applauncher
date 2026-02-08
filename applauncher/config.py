@@ -21,6 +21,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macro_view_mode": "grid",
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
+    "window_size": None,
     "notes": [],
 }
 
@@ -42,6 +43,18 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             return value
         return default.copy()
 
+    def normalize_window_size(value: Any) -> list[int] | None:
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            return None
+        try:
+            width = int(value[0])
+            height = int(value[1])
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return [width, height]
+
     if not isinstance(data, dict):
         return {
             "apps": normalize_list(data, []),
@@ -52,6 +65,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
+            "window_size": None,
             "notes": [],
         }
     apps = normalize_list(data.get("apps"), [])
@@ -62,6 +76,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
+    window_size = normalize_window_size(data.get("window_size"))
     notes = normalize_list(data.get("notes"), [])
     return {
         "apps": apps,
@@ -72,6 +87,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "macro_view_mode": macro_view_mode,
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,
+        "window_size": window_size,
         "notes": notes,
     }
 

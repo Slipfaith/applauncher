@@ -82,13 +82,26 @@ def _set_windows_app_user_model_id() -> None:
 
 def _resolve_app_icon_path() -> Path | None:
     if getattr(sys, "frozen", False):
-        base_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+        base_dir = Path(sys.executable).resolve().parent
     else:
         base_dir = Path(__file__).resolve().parents[2]
     icon_path = base_dir / APP_ICON_FILENAME
     if icon_path.exists():
         return icon_path
     return None
+
+
+def _resolve_app_icon() -> QIcon:
+    if getattr(sys, "frozen", False):
+        frozen_icon = QIcon(sys.executable)
+        if not frozen_icon.isNull():
+            return frozen_icon
+    icon_path = _resolve_app_icon_path()
+    if icon_path is not None:
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            return icon
+    return QIcon()
 
 
 class GroupTabBar(QTabBar):
@@ -134,7 +147,7 @@ class AppLauncher(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("mainWindow")
-        self.setMinimumSize(*TOKENS.sizes.window_min)
+        self.setMinimumSize(0, 0)
         self.setAcceptDrops(True)
 
         self.service = LauncherService()
@@ -147,6 +160,7 @@ class AppLauncher(QMainWindow):
         self._save_timer.timeout.connect(self._persist_config)
         self._notes_dirty = False
         self._did_final_flush = False
+        self._state_loaded = False
         self.launch_service = LaunchService()
         self.hotkey_service = HotkeyService(self)
         self.clipboard_service = ClipboardService(self)
@@ -171,7 +185,7 @@ class AppLauncher(QMainWindow):
         app_instance = QApplication.instance()
         if app_instance is not None:
             app_instance.installEventFilter(self)
-            app_instance.aboutToQuit.connect(self._flush_pending_save)
+            app_instance.aboutToQuit.connect(self._prepare_for_quit)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(
@@ -466,7 +480,7 @@ class AppLauncher(QMainWindow):
             QMessageBox.No,
         )
         if response == QMessageBox.Yes:
-            self._flush_pending_save()
+            self._prepare_for_quit()
             event.accept()
         else:
             event.ignore()
@@ -1036,14 +1050,31 @@ class AppLauncher(QMainWindow):
         if error:
             QMessageBox.warning(self, "Ошибка конфигурации", error)
         removed_cache_icons = self.icon_service.cleanup_broken_png_cache()
+        self._restore_window_size()
         self.setWindowOpacity(self.service.window_opacity)
         self.notes_widget.set_notes(self.service.notes)
         self._notes_dirty = False
         self.setup_tabs()
         self.sync_section_controls()
         self._last_render_state = None
+        self._state_loaded = True
         if removed_cache_icons:
             self.schedule_save()
+
+    def _restore_window_size(self) -> None:
+        saved_size = self.service.window_size
+        if not saved_size:
+            return
+        self.resize(*saved_size)
+
+    def _save_window_size(self) -> None:
+        if not self._state_loaded or self.isMaximized() or self.isFullScreen():
+            return
+        current_size = (self.width(), self.height())
+        if self.service.window_size == current_size:
+            return
+        self.service.window_size = current_size
+        self.schedule_save()
 
     def update_opacity(self, value: float) -> None:
         self.service.window_opacity = value
@@ -1400,6 +1431,7 @@ class AppLauncher(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._save_window_size()
         # FlowLayout automatically handles resizing
 
     def setup_shortcuts(self):
@@ -1516,6 +1548,15 @@ class AppLauncher(QMainWindow):
             self.show()
             self.activateWindow()
 
+    def _prepare_for_quit(self) -> None:
+        self._flush_pending_save()
+        self.hotkey_service.unregister_hotkey()
+        if self.tray_icon is not None:
+            self.tray_icon.hide()
+            self.tray_icon.setContextMenu(None)
+            self.tray_icon.deleteLater()
+            self.tray_icon = None
+
 
 def run_app():
     _set_windows_app_user_model_id()
@@ -1524,12 +1565,9 @@ def run_app():
     app.setStyle("Fusion")
     tray_available = QSystemTrayIcon.isSystemTrayAvailable()
     app.setQuitOnLastWindowClosed(not tray_available)
-    app_icon = QIcon()
-    app_icon_path = _resolve_app_icon_path()
-    if app_icon_path is not None:
-        app_icon = QIcon(str(app_icon_path))
-        if not app_icon.isNull():
-            app.setWindowIcon(app_icon)
+    app_icon = _resolve_app_icon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     apply_design_system(app)
 
     server_name = "applauncher_single_instance"

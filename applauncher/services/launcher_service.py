@@ -26,6 +26,7 @@ class LauncherService:
         self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
         self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
+        self.window_size: tuple[int, int] | None = None
         self.notes: list[dict] = []
 
     @property
@@ -58,6 +59,15 @@ class LauncherService:
         self.macro_view_mode = data.get("macro_view_mode", self.macro_view_mode)
         self.global_hotkey = data.get("global_hotkey", self.global_hotkey)
         self.window_opacity = data.get("window_opacity", self.window_opacity)
+        loaded_window_size = data.get("window_size")
+        if (
+            isinstance(loaded_window_size, list)
+            and len(loaded_window_size) == 2
+            and all(isinstance(value, int) and value > 0 for value in loaded_window_size)
+        ):
+            self.window_size = (loaded_window_size[0], loaded_window_size[1])
+        else:
+            self.window_size = None
         self.notes = self._normalize_loaded_notes(data.get("notes", []))
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
@@ -154,6 +164,7 @@ class LauncherService:
             "macro_view_mode": self.macro_view_mode,
             "global_hotkey": self.global_hotkey,
             "window_opacity": self.window_opacity,
+            "window_size": list(self.window_size) if self.window_size else None,
             "notes": self.notes,
         }
 
