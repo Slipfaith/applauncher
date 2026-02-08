@@ -3,6 +3,7 @@ import random
 import uuid
 
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLayout,
     QLineEdit,
@@ -23,6 +24,7 @@ from PySide6.QtCore import (
     QRect,
     QRectF,
     QSize,
+    QSignalBlocker,
     Qt,
     Signal,
     QTimer,
@@ -35,13 +37,17 @@ from PySide6.QtGui import (
     QPixmap,
     QTextCharFormat,
     QTextCursor,
+    QTextFormat,
     QTransform,
+    QMouseEvent,
 )
 
 from ..styles import TOKENS
 
-SPOILER_FG = QColor("#d1d5db")
+SPOILER_LEGACY_FG = QColor("#d1d5db")
 SPOILER_BG = QColor("#9ca3af")
+SPOILER_FG = QColor(SPOILER_BG)
+SPOILER_META_PROP = int(QTextFormat.UserProperty) + 1
 NOTE_WIDTH = TOKENS.sizes.grid_button[0] * 2 + TOKENS.layout.grid_layout_spacing
 NOTE_CONTENT_MIN_HEIGHT = 60
 NOTE_CONTENT_MAX_HEIGHT = 300
@@ -229,17 +235,17 @@ class SpoilerTextEdit(QTextEdit):
         self.verticalScrollBar().valueChanged.connect(self._schedule_refresh)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.setInterval(30)
+        self._refresh_timer.setInterval(0)
         self._refresh_timer.timeout.connect(self._refresh_overlay)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._overlay.setGeometry(self.viewport().rect())
-        self._schedule_refresh()
+        self.refresh_overlay_now()
 
     def showEvent(self, event):
         super().showEvent(event)
-        QTimer.singleShot(0, self._refresh_overlay)
+        self.refresh_overlay_now()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -248,6 +254,10 @@ class SpoilerTextEdit(QTextEdit):
 
     def _schedule_refresh(self):
         self._refresh_timer.start()
+
+    def refresh_overlay_now(self):
+        self._refresh_timer.stop()
+        self._refresh_overlay()
 
     def _refresh_overlay(self):
         if not self.isVisible():
@@ -275,22 +285,53 @@ class SpoilerTextEdit(QTextEdit):
         cursor = self.textCursor()
         if not cursor.hasSelection():
             return
-        fmt = QTextCharFormat()
-        fmt.setForeground(SPOILER_FG)
-        fmt.setBackground(SPOILER_BG)
-        cursor.mergeCharFormat(fmt)
+        cursor.mergeCharFormat(self._spoiler_format(hidden=True))
+        self.refresh_overlay_now()
 
-    def mousePressEvent(self, event):
+    def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
             cursor = self.cursorForPosition(event.pos())
-            if self._is_hidden(cursor.charFormat()):
+            if self._is_spoiler(cursor.charFormat()):
                 self._reveal_at(cursor.position())
                 return
-        super().mousePressEvent(event)
+        super().mouseDoubleClickEvent(event)
 
     @staticmethod
-    def _is_hidden(fmt: QTextCharFormat) -> bool:
-        return fmt.foreground().color() == SPOILER_FG and fmt.background().color() == SPOILER_BG
+    def _is_spoiler(fmt: QTextCharFormat) -> bool:
+        return bool(fmt.property(SPOILER_META_PROP)) or (
+            fmt.foreground().color() == SPOILER_LEGACY_FG and fmt.background().color() == SPOILER_BG
+        )
+
+    @classmethod
+    def _is_hidden(cls, fmt: QTextCharFormat) -> bool:
+        is_new_hidden = fmt.foreground().color() == SPOILER_FG and fmt.background().color() == SPOILER_BG
+        is_legacy_hidden = fmt.foreground().color() == SPOILER_LEGACY_FG and fmt.background().color() == SPOILER_BG
+        return (
+            cls._is_spoiler(fmt)
+            and (is_new_hidden or is_legacy_hidden)
+        )
+
+    @staticmethod
+    def _spoiler_format(hidden: bool) -> QTextCharFormat:
+        fmt = QTextCharFormat()
+        fmt.setProperty(SPOILER_META_PROP, True)
+        if hidden:
+            fmt.setForeground(SPOILER_FG)
+            fmt.setBackground(SPOILER_BG)
+        else:
+            fmt.setForeground(QColor(TOKENS.colors.text_primary))
+            fmt.setBackground(QBrush(Qt.NoBrush))
+        return fmt
+
+    def _apply_spoiler_state(self, start: int, end: int, *, hidden: bool, emit_signal: bool):
+        if start >= end:
+            return
+        blocker = None if emit_signal else QSignalBlocker(self)
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.KeepAnchor)
+        cursor.mergeCharFormat(self._spoiler_format(hidden=hidden))
+        del blocker
 
     def _reveal_at(self, pos: int):
         doc = self.document()
@@ -301,7 +342,7 @@ class SpoilerTextEdit(QTextEdit):
             c = QTextCursor(doc)
             c.setPosition(start - 1)
             c.setPosition(start, QTextCursor.KeepAnchor)
-            if not self._is_hidden(c.charFormat()):
+            if not self._is_spoiler(c.charFormat()):
                 break
             start -= 1
 
@@ -309,19 +350,46 @@ class SpoilerTextEdit(QTextEdit):
             c = QTextCursor(doc)
             c.setPosition(end)
             c.setPosition(end + 1, QTextCursor.KeepAnchor)
-            if not self._is_hidden(c.charFormat()):
+            if not self._is_spoiler(c.charFormat()):
                 break
             end += 1
 
         if start == end:
             return
-        cursor = QTextCursor(doc)
-        cursor.setPosition(start)
-        cursor.setPosition(end, QTextCursor.KeepAnchor)
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(TOKENS.colors.text_primary))
-        fmt.setBackground(QBrush(Qt.NoBrush))
-        cursor.mergeCharFormat(fmt)
+        self._apply_spoiler_state(start, end, hidden=False, emit_signal=False)
+        self.refresh_overlay_now()
+
+    def has_revealed_spoilers(self) -> bool:
+        doc = self.document()
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and self._is_spoiler(frag.charFormat()) and not self._is_hidden(frag.charFormat()):
+                    return True
+                it += 1
+            block = block.next()
+        return False
+
+    def remask_revealed_spoilers(self):
+        ranges: list[tuple[int, int]] = []
+        doc = self.document()
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and self._is_spoiler(frag.charFormat()) and not self._is_hidden(frag.charFormat()):
+                    ranges.append((frag.position(), frag.position() + frag.length()))
+                it += 1
+            block = block.next()
+
+        if not ranges:
+            return
+        for start, end in ranges:
+            self._apply_spoiler_state(start, end, hidden=True, emit_signal=False)
+        self.refresh_overlay_now()
 
     def _compute_spoiler_rects(self) -> list[QRect]:
         rects: list[QRect] = []
@@ -374,6 +442,7 @@ class NoteCard(QWidget):
         super().__init__(parent)
         self.note_id = note_data.get("id", str(uuid.uuid4()))
         self._collapsed = note_data.get("collapsed", False)
+        self._app = QApplication.instance()
         self.setProperty("role", "noteCard")
         self.setFixedWidth(NOTE_WIDTH)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Maximum)
@@ -440,12 +509,29 @@ class NoteCard(QWidget):
         self._toggle_animation.setEasingCurve(QEasingCurve.InOutCubic)
         self._toggle_animation.valueChanged.connect(self._on_toggle_step)
         self._toggle_animation.finished.connect(self._on_toggle_finished)
+        if self._app is not None:
+            self._app.installEventFilter(self)
 
         if self._collapsed:
             self.content.setMaximumHeight(0)
             self.content.hide()
         else:
             QTimer.singleShot(0, self._sync_content_height)
+
+    def closeEvent(self, event):
+        if self._app is not None:
+            self._app.removeEventFilter(self)
+        super().closeEvent(event)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and isinstance(event, QMouseEvent):
+            if self.content.has_revealed_spoilers():
+                local_pos = self.mapFromGlobal(event.globalPosition().toPoint())
+                if not self.rect().contains(local_pos):
+                    self.content.remask_revealed_spoilers()
+        elif event.type() == QEvent.WindowDeactivate and self.content.has_revealed_spoilers():
+            self.content.remask_revealed_spoilers()
+        return super().eventFilter(obj, event)
 
     def _on_changed(self):
         if not self._collapsed and self._toggle_animation.state() != QAbstractAnimation.Running:
@@ -488,6 +574,7 @@ class NoteCard(QWidget):
             self.content.show()
             start = max(0, self.content.maximumHeight())
             end = self._target_content_height()
+            self.content.refresh_overlay_now()
         self.content.setMaximumHeight(start)
         self._toggle_animation.setStartValue(start)
         self._toggle_animation.setEndValue(end)
@@ -519,6 +606,7 @@ class NoteCard(QWidget):
             self.content.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
     def get_data(self) -> dict:
+        self.content.remask_revealed_spoilers()
         return {
             "id": self.note_id,
             "title": self.title_input.text(),
