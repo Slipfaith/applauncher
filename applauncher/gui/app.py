@@ -1,5 +1,6 @@
 """Main application window."""
 import os
+import sys
 import logging
 import ctypes
 from pathlib import Path
@@ -38,7 +39,7 @@ from .dialogs import AddAppDialog, AddMacroDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, TitleBar, UniversalSearchWidget
+from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
 from ..services.clipboard_service import ClipboardService
 from ..services.hotkey_service import HotkeyService
@@ -66,6 +67,28 @@ HTBOTTOMRIGHT = 17
 WM_NCCALCSIZE = 0x0083
 WS_THICKFRAME = 0x00040000
 GWL_STYLE = -16
+APP_USER_MODEL_ID = "applauncher.desktop.app"
+APP_ICON_FILENAME = "sliplaun.ico"
+
+
+def _set_windows_app_user_model_id() -> None:
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception as err:
+        logger.debug("Не удалось установить AppUserModelID: %s", err)
+
+
+def _resolve_app_icon_path() -> Path | None:
+    if getattr(sys, "frozen", False):
+        base_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    else:
+        base_dir = Path(__file__).resolve().parents[2]
+    icon_path = base_dir / APP_ICON_FILENAME
+    if icon_path.exists():
+        return icon_path
+    return None
 
 
 class GroupTabBar(QTabBar):
@@ -122,6 +145,8 @@ class AppLauncher(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(300)
         self._save_timer.timeout.connect(self._persist_config)
+        self._notes_dirty = False
+        self._did_final_flush = False
         self.launch_service = LaunchService()
         self.hotkey_service = HotkeyService(self)
         self.clipboard_service = ClipboardService(self)
@@ -146,6 +171,7 @@ class AppLauncher(QMainWindow):
         app_instance = QApplication.instance()
         if app_instance is not None:
             app_instance.installEventFilter(self)
+            app_instance.aboutToQuit.connect(self._flush_pending_save)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(
@@ -190,6 +216,7 @@ class AppLauncher(QMainWindow):
         self.section_tabs.addTab("Папки")
         self.section_tabs.addTab("Ссылки")
         self.section_tabs.addTab("Clipboard")
+        self.section_tabs.addTab("Заметки")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
         self.section_tabs.currentChanged.connect(self.on_section_changed)
@@ -307,7 +334,7 @@ class AppLauncher(QMainWindow):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setWidget(self.view_stack)
 
         content_layout.addWidget(self.scroll_area)
@@ -315,6 +342,9 @@ class AppLauncher(QMainWindow):
         self.content_stack.addWidget(launcher_widget)
         self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
         self.content_stack.addWidget(self.clipboard_widget)
+        self.notes_widget = NotesWidget()
+        self.notes_widget.notesChanged.connect(self._on_notes_changed)
+        self.content_stack.addWidget(self.notes_widget)
 
         self.load_state()
         self.setWindowOpacity(self.service.window_opacity)
@@ -339,22 +369,34 @@ class AppLauncher(QMainWindow):
 
         self.tray_icon = QSystemTrayIcon(self)
 
-        pixmap = QPixmap(TOKENS.sizes.tray_icon, TOKENS.sizes.tray_icon)
-        pixmap.fill(QColor(TOKENS.colors.accent))
-        icon = QIcon(pixmap)
-        self.tray_icon.setIcon(icon)
+        tray_icon = QApplication.windowIcon()
+        if tray_icon.isNull():
+            tray_icon = self.windowIcon()
+        if tray_icon.isNull():
+            icon_path = _resolve_app_icon_path()
+            if icon_path is not None:
+                loaded_icon = QIcon(str(icon_path))
+                if not loaded_icon.isNull():
+                    tray_icon = loaded_icon
+        if tray_icon.isNull():
+            # Final fallback to avoid an empty tray icon.
+            pixmap = QPixmap(16, 16)
+            pixmap.fill(QColor(TOKENS.colors.accent))
+            tray_icon = QIcon(pixmap)
+        self.tray_icon.setIcon(tray_icon)
+        self.tray_icon.setToolTip("AppLauncher")
 
         tray_menu = QMenu()
 
-        show_action = tray_menu.addAction("🚀 Показать")
+        show_action = tray_menu.addAction("Показать")
         show_action.triggered.connect(self.show)
 
-        settings_action = tray_menu.addAction("⚙️ Настройки")
+        settings_action = tray_menu.addAction("Настройки")
         settings_action.triggered.connect(self.show_settings)
 
         tray_menu.addSeparator()
 
-        quit_action = tray_menu.addAction("❌ Выход")
+        quit_action = tray_menu.addAction("Выход")
         quit_action.triggered.connect(QApplication.quit)
 
         self.tray_icon.setContextMenu(tray_menu)
@@ -404,6 +446,7 @@ class AppLauncher(QMainWindow):
             QMessageBox.No,
         )
         if response == QMessageBox.Yes:
+            self._flush_pending_save()
             event.accept()
         else:
             event.ignore()
@@ -850,7 +893,7 @@ class AppLauncher(QMainWindow):
         QApplication.clipboard().setText(link_value)
 
     def refresh_view(self):
-        if self.is_clipboard_section:
+        if self.is_clipboard_section or self.is_notes_section:
             return
         current_group = self.current_group
         query = self.search_input.text()
@@ -973,6 +1016,8 @@ class AppLauncher(QMainWindow):
         if error:
             QMessageBox.warning(self, "Ошибка конфигурации", error)
         self.setWindowOpacity(self.service.window_opacity)
+        self.notes_widget.set_notes(self.service.notes)
+        self._notes_dirty = False
         self.setup_tabs()
         self.sync_section_controls()
         self._last_render_state = None
@@ -986,9 +1031,26 @@ class AppLauncher(QMainWindow):
         self._save_timer.start()
 
     def _persist_config(self):
+        if self._notes_dirty and hasattr(self, "notes_widget"):
+            self.service.notes = self.notes_widget.get_notes()
+            self._notes_dirty = False
         error = self.service.persist_config()
         if error:
             QMessageBox.warning(self, "Ошибка", error)
+
+    def _flush_pending_save(self):
+        if self._did_final_flush:
+            return
+        self._did_final_flush = True
+        notes_widget = getattr(self, "notes_widget", None)
+        if notes_widget is not None:
+            self.service.notes = notes_widget.get_notes()
+            self._notes_dirty = False
+        if self._save_timer.isActive():
+            self._save_timer.stop()
+        error = self.service.persist_config()
+        if error:
+            logger.warning("Не удалось сохранить конфигурацию при завершении: %s", error)
 
     @property
     def current_group(self) -> str:
@@ -1038,9 +1100,16 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
         self.refresh_view()
 
+    def _on_notes_changed(self) -> None:
+        self._notes_dirty = True
+        self.schedule_save()
+
     def on_section_changed(self, _index: int):
         if self.is_clipboard_section:
             self.content_stack.setCurrentWidget(self.clipboard_widget)
+            return
+        if self.is_notes_section:
+            self.content_stack.setCurrentWidget(self.notes_widget)
             return
         self.content_stack.setCurrentIndex(0)
         self.setup_tabs()
@@ -1392,6 +1461,10 @@ class AppLauncher(QMainWindow):
         return self.section_tabs.currentIndex() == 4
 
     @property
+    def is_notes_section(self) -> bool:
+        return self.section_tabs.currentIndex() == 5
+
+    @property
     def is_folders_section(self) -> bool:
         return self.section_tabs.currentIndex() == 2
 
@@ -1422,10 +1495,18 @@ class AppLauncher(QMainWindow):
 
 
 def run_app():
+    _set_windows_app_user_model_id()
     app = QApplication([])
+    app.setApplicationName("AppLauncher")
     app.setStyle("Fusion")
     tray_available = QSystemTrayIcon.isSystemTrayAvailable()
     app.setQuitOnLastWindowClosed(not tray_available)
+    app_icon = QIcon()
+    app_icon_path = _resolve_app_icon_path()
+    if app_icon_path is not None:
+        app_icon = QIcon(str(app_icon_path))
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
     apply_design_system(app)
 
     server_name = "applauncher_single_instance"
@@ -1452,5 +1533,7 @@ def run_app():
         )
 
     window = AppLauncher()
+    if not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     window.show()
     return app.exec()

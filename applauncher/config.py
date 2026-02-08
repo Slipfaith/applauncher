@@ -21,6 +21,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macro_view_mode": "grid",
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
+    "notes": [],
 }
 
 
@@ -51,6 +52,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
+            "notes": [],
         }
     apps = normalize_list(data.get("apps"), [])
     groups = normalize_groups(data.get("groups"), DEFAULT_CONFIG["groups"])
@@ -60,6 +62,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
+    notes = normalize_list(data.get("notes"), [])
     return {
         "apps": apps,
         "groups": groups,
@@ -69,6 +72,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "macro_view_mode": macro_view_mode,
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,
+        "notes": notes,
     }
 
 

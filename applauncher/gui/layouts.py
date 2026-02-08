@@ -84,7 +84,7 @@ class FlowLayout(QLayout):
         effective_rect = rect.adjusted(+left, +top, -right, -bottom)
         items = self._item_list
         if not items:
-            return bottom
+            return top + bottom
 
         min_spacing_x = max(0, self.horizontalSpacing())
         spacing_y = max(0, self.verticalSpacing())
@@ -92,7 +92,6 @@ class FlowLayout(QLayout):
         max_item_width = max(hint.width() for hint in hints)
         available_width = max(0, effective_rect.width())
         max_columns = self._resolve_columns(available_width, min_spacing_x, max_item_width)
-        columns = min(len(items), max_columns)
 
         if max_columns > 1:
             full_row_width = max_item_width * max_columns
@@ -104,8 +103,8 @@ class FlowLayout(QLayout):
         y = effective_rect.y()
         index = 0
         while index < len(items):
-            row_items = items[index : index + columns]
-            row_hints = hints[index : index + columns]
+            row_items = items[index : index + max_columns]
+            row_hints = hints[index : index + max_columns]
             row_height = max(hint.height() for hint in row_hints)
 
             x = float(effective_rect.x())
@@ -117,4 +116,4 @@ class FlowLayout(QLayout):
             y += row_height + spacing_y
             index += len(row_items)
 
-        return y - effective_rect.y() - spacing_y + bottom
+        return y - effective_rect.y() - spacing_y + top + bottom

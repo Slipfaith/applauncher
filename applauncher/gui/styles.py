@@ -439,6 +439,37 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         background: transparent;
         border: none;
     }}
+
+    QWidget[role="noteCard"] {{
+        background: {colors.surface};
+        border: 1px solid rgba(75, 85, 99, 0.24);
+        border-radius: {radii.lg}px;
+    }}
+
+    QWidget[role="noteCard"]:hover {{
+        border-color: rgba(75, 85, 99, 0.36);
+    }}
+
+    QLineEdit[role="noteTitleInput"] {{
+        border: 1px solid {colors.border_soft};
+        background: {colors.surface_alt};
+        border-radius: {radii.sm}px;
+        font-weight: {typography.weight_bold};
+        font-size: {typography.font_size_lg}px;
+        padding: {spacing.xs}px {spacing.sm}px;
+    }}
+
+    QLineEdit[role="noteTitleInput"]:focus {{
+        border: 1px solid {colors.border};
+        background: {colors.surface};
+        padding: {spacing.xs}px {spacing.sm}px;
+    }}
+
+    QWidget[role="noteCard"] QTextEdit {{
+        border: none;
+        background: transparent;
+        font-size: {typography.font_size_md}px;
+    }}
     """
 
 

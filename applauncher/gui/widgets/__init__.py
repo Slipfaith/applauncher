@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 from .clipboard_history_widget import ClipboardHistoryWidget  # noqa: E402
 from .hotkey_settings_widget import HotkeySettingsWidget  # noqa: E402
+from .notes_widget import NotesWidget  # noqa: E402
 from .universal_search_widget import UniversalSearchWidget  # noqa: E402
 
 

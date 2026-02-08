@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Optional
 
 from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
@@ -25,6 +26,7 @@ class LauncherService:
         self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
         self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
+        self.notes: list[dict] = []
 
     @property
     def version(self) -> int:
@@ -56,6 +58,7 @@ class LauncherService:
         self.macro_view_mode = data.get("macro_view_mode", self.macro_view_mode)
         self.global_hotkey = data.get("global_hotkey", self.global_hotkey)
         self.window_opacity = data.get("window_opacity", self.window_opacity)
+        self.notes = self._normalize_loaded_notes(data.get("notes", []))
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
             if group_name not in self.groups:
@@ -73,6 +76,40 @@ class LauncherService:
             if normalized is not None:
                 validated.append(normalized)
         return validated
+
+    def _normalize_loaded_notes(self, notes: object) -> list[dict]:
+        if not isinstance(notes, list):
+            return []
+
+        normalized: list[dict] = []
+        seen_ids: set[str] = set()
+        for note in notes:
+            if not isinstance(note, dict):
+                continue
+            note_id = str(note.get("id") or "").strip()
+            if not note_id or note_id in seen_ids:
+                note_id = str(uuid.uuid4())
+            seen_ids.add(note_id)
+
+            title_raw = note.get("title", "")
+            content_raw = note.get("content_html", "")
+            collapsed_raw = note.get("collapsed", False)
+            if isinstance(collapsed_raw, bool):
+                collapsed = collapsed_raw
+            elif isinstance(collapsed_raw, str):
+                collapsed = collapsed_raw.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                collapsed = bool(collapsed_raw)
+
+            normalized.append(
+                {
+                    "id": note_id,
+                    "title": "" if title_raw is None else str(title_raw),
+                    "content_html": "" if content_raw is None else str(content_raw),
+                    "collapsed": collapsed,
+                }
+            )
+        return normalized
 
     def _mark_missing_paths(self, items: list[dict]) -> None:
         for item in items:
@@ -117,6 +154,7 @@ class LauncherService:
             "macro_view_mode": self.macro_view_mode,
             "global_hotkey": self.global_hotkey,
             "window_opacity": self.window_opacity,
+            "notes": self.notes,
         }
 
     def persist_config(self) -> Optional[str]:
