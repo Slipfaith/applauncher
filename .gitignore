@@ -42,6 +42,7 @@ pip-wheel-metadata/
 __nuitka_build__/
 *.exe
 *.app
+*.test/
 
 # =========================
 # Tools caches
