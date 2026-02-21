@@ -17,6 +17,8 @@ from ..widgets.hotkey_settings_widget import HotkeySettingsWidget
 
 class SettingsDialog(QDialog):
     opacityChanged = Signal(float)
+    clearIconCacheRequested = Signal()
+    resetSettingsRequested = Signal()
 
     def __init__(self, current_hotkey: str, current_opacity: float, parent=None) -> None:
         super().__init__(parent)
@@ -50,6 +52,18 @@ class SettingsDialog(QDialog):
 
         self.hotkey_widget = HotkeySettingsWidget(current_hotkey, self)
         layout.addWidget(self.hotkey_widget)
+
+        actions_row = QHBoxLayout()
+        self.clear_cache_btn = QPushButton("Очистить кэш иконок")
+        self.clear_cache_btn.setProperty("variant", "secondary")
+        self.clear_cache_btn.clicked.connect(self.clearIconCacheRequested.emit)
+        actions_row.addWidget(self.clear_cache_btn)
+
+        self.reset_settings_btn = QPushButton("Сбросить настройки")
+        self.reset_settings_btn.setProperty("variant", "danger")
+        self.reset_settings_btn.clicked.connect(self.resetSettingsRequested.emit)
+        actions_row.addWidget(self.reset_settings_btn)
+        layout.addLayout(actions_row)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()

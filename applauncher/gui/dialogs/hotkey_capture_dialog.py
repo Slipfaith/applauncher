@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QKeySequence, QShowEvent
 from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout, QHBoxLayout
 
 from ..styles import TOKENS
@@ -25,6 +25,7 @@ class HotkeyCaptureDialog(QDialog):
         self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
         self._current_hotkey = current_hotkey
         self.selected_hotkey: str | None = None
+        self.setFocusPolicy(Qt.StrongFocus)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(
@@ -53,17 +54,32 @@ class HotkeyCaptureDialog(QDialog):
 
         self.cancel_btn = QPushButton("Отмена")
         self.cancel_btn.setProperty("variant", "secondary")
+        self.cancel_btn.setFocusPolicy(Qt.NoFocus)
+        self.cancel_btn.setAutoDefault(False)
+        self.cancel_btn.setDefault(False)
         self.cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(self.cancel_btn)
 
         self.save_btn = QPushButton("Сохранить")
         self.save_btn.setProperty("variant", "accent")
+        self.save_btn.setFocusPolicy(Qt.NoFocus)
+        self.save_btn.setAutoDefault(False)
+        self.save_btn.setDefault(False)
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.accept)
         btn_layout.addWidget(self.save_btn)
 
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.setFocus(Qt.ActiveWindowFocusReason)
+        self.grabKeyboard()
+
+    def done(self, result: int) -> None:
+        self.releaseKeyboard()
+        super().done(result)
 
     def keyPressEvent(self, event):
         if event.isAutoRepeat():
@@ -73,9 +89,24 @@ class HotkeyCaptureDialog(QDialog):
         if key in {Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta}:
             self._update_display(modifiers, None)
             return
-        key_name = QKeySequence(key).toString()
+        key_name = self._key_name(key)
         hotkey = self._format_hotkey(modifiers, key_name)
         self._update_hotkey(hotkey)
+
+    def _key_name(self, key: int) -> str:
+        key_names = {
+            Qt.Key_Space: "Space",
+            Qt.Key_Delete: "Del",
+            Qt.Key_Insert: "Ins",
+            Qt.Key_PageUp: "PgUp",
+            Qt.Key_PageDown: "PgDown",
+            Qt.Key_Return: "Enter",
+            Qt.Key_Enter: "Enter",
+        }
+        if key in key_names:
+            return key_names[key]
+        resolved = QKeySequence(key).toString(QKeySequence.PortableText)
+        return resolved or QKeySequence(key).toString()
 
     def _update_display(self, modifiers, key_name: str | None) -> None:
         hotkey = self._format_hotkey(modifiers, key_name) if key_name else self._format_hotkey(modifiers, None)

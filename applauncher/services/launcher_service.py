@@ -178,6 +178,19 @@ class LauncherService:
             logger.warning("Ошибка сохранения конфигурации: %s", err)
             return str(err)
 
+    def reset_to_defaults(self) -> Optional[str]:
+        self.repository.set_apps([])
+        self.macro_repository.set_apps([])
+        self.groups = DEFAULT_CONFIG["groups"].copy()
+        self.macro_groups = DEFAULT_CONFIG["macro_groups"].copy()
+        self.view_mode = DEFAULT_CONFIG["view_mode"]
+        self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
+        self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
+        self.window_opacity = DEFAULT_CONFIG["window_opacity"]
+        self.window_size = None
+        self.notes = []
+        return self.persist_config()
+
     def ensure_group(self, group: str) -> None:
         if group and group not in self.groups:
             self.groups.append(group)

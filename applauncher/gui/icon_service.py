@@ -96,11 +96,46 @@ class IconService(QObject):
             try:
                 resolved_icon_path = Path(icon_path).resolve()
             except Exception:
-                app["icon_path"] = ""
+                self._repository.update_icon(app["path"], "")
                 continue
             if resolved_icon_path in removed_paths:
-                app["icon_path"] = ""
+                self._repository.update_icon(app["path"], "")
 
+        return len(removed_paths)
+
+    def clear_cache(self) -> int:
+        """Delete all files in cache directory and clear linked app icon paths."""
+        try:
+            icons_dir = Path(resolve_icons_cache_dir()).resolve()
+        except Exception:
+            return 0
+        if not icons_dir.exists():
+            return 0
+
+        removed_paths: set[Path] = set()
+        for icon_file in icons_dir.iterdir():
+            if not icon_file.is_file():
+                continue
+            try:
+                icon_file.unlink()
+                removed_paths.add(icon_file.resolve())
+            except OSError:
+                continue
+
+        if not removed_paths:
+            return 0
+
+        for app in self._repository.apps:
+            icon_path = (app.get("icon_path") or "").strip()
+            if not icon_path:
+                continue
+            try:
+                resolved_icon_path = Path(icon_path).resolve()
+            except Exception:
+                self._repository.update_icon(app["path"], "")
+                continue
+            if resolved_icon_path in removed_paths:
+                self._repository.update_icon(app["path"], "")
         return len(removed_paths)
 
     def _on_icon_extracted(

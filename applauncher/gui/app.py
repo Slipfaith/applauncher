@@ -1,8 +1,10 @@
 """Main application window."""
+import json
 import os
 import sys
 import logging
 import ctypes
+from ctypes import wintypes
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -29,19 +31,18 @@ from PySide6.QtGui import (
     QDragEnterEvent,
     QDropEvent,
     QIcon,
-    QPixmap,
     QKeySequence,
+    QPixmap,
     QShortcut,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
-from .dialogs import AddAppDialog, AddMacroDialog, SettingsDialog
+from .dialogs import AddAppDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, NotesWidget, TitleBar, UniversalSearchWidget
-from ..repository import DEFAULT_GROUP, DEFAULT_MACRO_GROUPS
-from ..services.clipboard_service import ClipboardService
+from .widgets import AppButton, AppListItem, NotesWidget, TitleBar, UniversalSearchWidget
+from ..repository import DEFAULT_GROUP
 from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
 from ..services.launcher_service import LauncherService
@@ -49,7 +50,6 @@ from ..services.search_service import SearchService
 from ..services.validation import (
     extract_shortcut_data,
     validate_app_data,
-    validate_macro_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,9 @@ HTBOTTOM = 15
 HTBOTTOMLEFT = 16
 HTBOTTOMRIGHT = 17
 WM_NCCALCSIZE = 0x0083
+WM_POWERBROADCAST = 0x0218
+PBT_APMRESUMESUSPEND = 0x0007
+PBT_APMRESUMEAUTOMATIC = 0x0012
 WS_THICKFRAME = 0x00040000
 GWL_STYLE = -16
 APP_USER_MODEL_ID = "applauncher.desktop.app"
@@ -132,8 +135,6 @@ class GroupTabBar(QTabBar):
         if index < 0:
             return
         group = self.tabText(index)
-        if group == "+":
-            return
         payload = bytes(event.mimeData().data("application/x-applauncher-app")).decode("utf-8")
         if payload:
             self.appDropRequested.emit(payload, group)
@@ -163,7 +164,6 @@ class AppLauncher(QMainWindow):
         self._state_loaded = False
         self.launch_service = LaunchService()
         self.hotkey_service = HotkeyService(self)
-        self.clipboard_service = ClipboardService(self)
         self.search_service = SearchService(self.repository, self.macro_repository)
         self.icon_service = IconService(self.repository)
         self.icon_service.iconUpdated.connect(self._on_icon_updated)
@@ -171,6 +171,7 @@ class AppLauncher(QMainWindow):
         self.universal_search.resultActivated.connect(self._launch_search_result)
         self.hotkey_service.hotkey_activated.connect(self._on_hotkey_activated)
         self.settings_dialog: SettingsDialog | None = None
+        self._ipc_clients: list[QLocalSocket] = []
         self.tray_icon: QSystemTrayIcon | None = None
         self.tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         if self.tray_available:
@@ -186,6 +187,7 @@ class AppLauncher(QMainWindow):
         if app_instance is not None:
             app_instance.installEventFilter(self)
             app_instance.aboutToQuit.connect(self._prepare_for_quit)
+            app_instance.applicationStateChanged.connect(self._on_application_state_changed)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(
@@ -232,10 +234,8 @@ class AppLauncher(QMainWindow):
 
         self.section_tabs = QTabBar()
         self.section_tabs.addTab("Приложения")
-        self.section_tabs.addTab("Макросы")
         self.section_tabs.addTab("Папки")
         self.section_tabs.addTab("Ссылки")
-        self.section_tabs.addTab("Clipboard")
         self.section_tabs.addTab("Заметки")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
@@ -262,6 +262,15 @@ class AppLauncher(QMainWindow):
         )
         controls_layout.setSpacing(TOKENS.layout.content_spacing)
 
+        tabs_row = QHBoxLayout()
+        tabs_row.setContentsMargins(
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+            TOKENS.spacing.none,
+        )
+        tabs_row.setSpacing(TOKENS.spacing.sm)
+
         self.tabs = QTabWidget()
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.tabs.setMovable(True)
@@ -276,7 +285,16 @@ class AppLauncher(QMainWindow):
         self.tabs.currentChanged.connect(lambda _: self.refresh_view())
         self.tab_bar.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tab_bar.customContextMenuRequested.connect(self.show_tab_context_menu)
-        controls_layout.addWidget(self.tabs)
+        tabs_row.addWidget(self.tabs)
+
+        self.add_group_btn = QPushButton("+")
+        self.add_group_btn.setProperty("variant", "secondary")
+        self.add_group_btn.setFixedSize(28, 28)
+        self.add_group_btn.setToolTip("Добавить подвкладку")
+        self.add_group_btn.clicked.connect(self.add_group)
+        tabs_row.addWidget(self.add_group_btn)
+
+        controls_layout.addLayout(tabs_row)
 
         search_layout = QHBoxLayout()
         search_layout.setContentsMargins(
@@ -360,8 +378,6 @@ class AppLauncher(QMainWindow):
         content_layout.addWidget(self.scroll_area)
 
         self.content_stack.addWidget(launcher_widget)
-        self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
-        self.content_stack.addWidget(self.clipboard_widget)
         self.notes_widget = NotesWidget()
         self.notes_widget.notesChanged.connect(self._on_notes_changed)
         self.content_stack.addWidget(self.notes_widget)
@@ -440,12 +456,61 @@ class AppLauncher(QMainWindow):
             )
             self.settings_dialog.hotkey_widget.hotkeyChanged.connect(self.update_hotkey)
             self.settings_dialog.opacityChanged.connect(self.update_opacity)
+            self.settings_dialog.clearIconCacheRequested.connect(
+                self._on_clear_icon_cache_requested
+            )
+            self.settings_dialog.resetSettingsRequested.connect(
+                self._on_reset_settings_requested
+            )
         else:
             self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
             self.settings_dialog.set_opacity(self.service.window_opacity)
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
+
+    def _on_clear_icon_cache_requested(self) -> None:
+        confirm = QMessageBox.question(
+            self,
+            "Очистить кэш иконок",
+            "Удалить все сохраненные иконки из кэша?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        removed = self.icon_service.clear_cache()
+        if removed:
+            self.schedule_save()
+            self.refresh_view()
+        QMessageBox.information(
+            self,
+            "Кэш иконок",
+            "Кэш очищен." if removed else "Кэш уже пуст.",
+        )
+
+    def _on_reset_settings_requested(self) -> None:
+        confirm = QMessageBox.question(
+            self,
+            "Сбросить настройки",
+            "Сбросить настройки и список элементов до значений по умолчанию?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        self.icon_service.clear_cache()
+        error = self.service.reset_to_defaults()
+        if error:
+            QMessageBox.warning(self, "Ошибка", error)
+            return
+        self.load_state()
+        self._register_hotkey()
+        if self.settings_dialog is not None:
+            self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
+            self.settings_dialog.set_opacity(self.service.window_opacity)
+        QMessageBox.information(self, "Настройки", "Сброс выполнен.")
 
     def show_top_menu(self):
         menu = QMenu(self)
@@ -493,100 +558,77 @@ class AppLauncher(QMainWindow):
         added = False
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if os.name == "nt":
-                file_path = os.path.normpath(file_path)
-            suffix = Path(file_path).suffix.lower()
-
-            if self.is_macro_section:
-                if suffix in set(DEFAULT_MACRO_GROUPS) and os.path.exists(file_path):
-                    name = Path(file_path).stem
-                    macro_data = {
-                        "name": name,
-                        "path": file_path,
-                        "description": "",
-                        "group": suffix,
-                    }
-                    data, error = validate_macro_data(macro_data)
-                    if error:
-                        logger.warning("Не удалось добавить макрос: %s", error)
-                        continue
-                    created = self.service.add_macro(data)
-                    added = True
-                    logger.info("Добавлен макрос из перетаскивания: %s", created["path"])
-                else:
-                    logger.warning("Игнорирован файл при перетаскивании: %s", file_path)
-                continue
-
-            if self.is_folders_section:
-                if os.path.isdir(file_path):
-                    name = Path(file_path).name
-                    app_data = {
-                        "name": name,
-                        "path": file_path,
-                        "icon_path": "",
-                        "type": "folder",
-                        "group": self.current_group,
-                        "usage_count": 0,
-                        "source": "manual",
-                    }
-                    self.service.add_app(app_data)
-                    added = True
-                    logger.info("Добавлена папка из перетаскивания: %s", file_path)
-                else:
-                    logger.warning("Игнорирован файл при перетаскивании: %s", file_path)
-                continue
-
-            if suffix in {".url", ".lnk"} and os.path.exists(file_path):
-                shortcut_data = extract_shortcut_data(file_path)
-                if shortcut_data:
-                    name = Path(file_path).stem
-                    app_data = {
-                        "name": name,
-                        "path": shortcut_data["path"],
-                        "icon_path": shortcut_data.get("icon_path", ""),
-                        "type": shortcut_data.get("type", "exe"),
-                        "args": shortcut_data.get("args", []),
-                        "group": self.current_group,
-                        "usage_count": 0,
-                        "source": "manual",
-                    }
-                    created = self.service.add_app(app_data)
-                    self.icon_service.start_extraction(created)
-                    added = True
-                    logger.info(
-                        "Добавлен ярлык из перетаскивания: %s -> %s",
-                        file_path,
-                        shortcut_data["path"],
-                    )
-                else:
-                    logger.warning("Не удалось прочитать ярлык: %s", file_path)
-                continue
-
-            if suffix in {".exe", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
-                name = Path(file_path).stem
-                app_data = {
-                    "name": name,
-                    "path": file_path,
-                    "icon_path": "",
-                    "type": "exe",
-                    "group": self.current_group,
-                    "usage_count": 0,
-                    "source": "manual",
-                }
-                created = self.service.add_app(app_data)
-                self.icon_service.start_extraction(created)
+            if self._import_path_into_current_group(file_path):
                 added = True
-                logger.info("Добавлено приложение из перетаскивания: %s", file_path)
-            else:
-                logger.warning("Игнорирован файл при перетаскивании: %s", file_path)
         if added:
             self.schedule_save()
             self.refresh_view()
 
+    def _import_path_into_current_group(self, file_path: str, source: str = "manual") -> bool:
+        if os.name == "nt":
+            file_path = os.path.normpath(file_path)
+        suffix = Path(file_path).suffix.lower()
+
+        if self.is_folders_section:
+            if os.path.isdir(file_path):
+                name = Path(file_path).name
+                app_data = {
+                    "name": name,
+                    "path": file_path,
+                    "icon_path": "",
+                    "type": "folder",
+                    "group": self.current_group,
+                    "usage_count": 0,
+                    "source": source,
+                }
+                self.service.add_app(app_data)
+                logger.info("Добавлена папка: %s", file_path)
+                return True
+            logger.warning("Игнорирован неподходящий путь для папок: %s", file_path)
+            return False
+
+        if suffix in {".url", ".lnk"} and os.path.exists(file_path):
+            shortcut_data = extract_shortcut_data(file_path)
+            if shortcut_data:
+                name = Path(file_path).stem
+                app_data = {
+                    "name": name,
+                    "path": shortcut_data["path"],
+                    "icon_path": shortcut_data.get("icon_path", ""),
+                    "type": shortcut_data.get("type", "exe"),
+                    "args": shortcut_data.get("args", []),
+                    "group": self.current_group,
+                    "usage_count": 0,
+                    "source": source,
+                }
+                created = self.service.add_app(app_data)
+                self.icon_service.start_extraction(created)
+                logger.info("Добавлен ярлык: %s", file_path)
+                return True
+            logger.warning("Не удалось прочитать ярлык: %s", file_path)
+            return False
+
+        if suffix in {".exe", ".bat", ".cmd", ".py"} and os.path.exists(file_path):
+            name = Path(file_path).stem
+            app_data = {
+                "name": name,
+                "path": file_path,
+                "icon_path": "",
+                "type": "exe",
+                "group": self.current_group,
+                "usage_count": 0,
+                "source": source,
+            }
+            created = self.service.add_app(app_data)
+            self.icon_service.start_extraction(created)
+            logger.info("Добавлен исполняемый файл: %s", file_path)
+            return True
+
+        logger.warning("Игнорирован неподходящий файл: %s", file_path)
+        return False
+
     def add_item(self):
-        if self.is_macro_section:
-            self.add_macro()
-        elif self.is_folders_section:
+        if self.is_folders_section:
             self.add_folder()
         elif self.is_links_section:
             self.add_link()
@@ -594,9 +636,7 @@ class AppLauncher(QMainWindow):
             self.add_app()
 
     def clear_all_items(self):
-        if self.is_macro_section:
-            self.clear_all_macros()
-        elif self.is_folders_section:
+        if self.is_folders_section:
             self.clear_all_folders()
         elif self.is_links_section:
             self.clear_all_links()
@@ -694,7 +734,7 @@ class AppLauncher(QMainWindow):
                     self.icon_service.start_extraction(stored or updated)
                     self.schedule_save()
                     self.refresh_view()
-                    logger.info("Изменен элемент: %s", updated["name"])
+                    logger.info("??????? ???????: %s", updated["name"])
                 break
 
     def delete_app(self, app_data: dict):
@@ -704,51 +744,6 @@ class AppLauncher(QMainWindow):
         if self.service.delete_app(app_data["path"]):
             self.icon_service.cleanup_icon_cache(app_data.get("icon_path"))
             logger.info("Удален элемент: %s", app_data["name"])
-            self.schedule_save()
-            self.refresh_view()
-
-    def add_macro(self):
-        dialog = AddMacroDialog(self, groups=self.groups)
-        if dialog.exec():
-            data, error = validate_macro_data(dialog.get_data())
-            if error:
-                QMessageBox.warning(self, "Ошибка", error)
-                return
-            if not data:
-                return
-            if data.get("group") not in self.groups:
-                self.groups.append(data.get("group"))
-                self.setup_tabs()
-            self.service.add_macro(data)
-            self.schedule_save()
-            self.refresh_view()
-            logger.info("Добавлен макрос: %s", data["name"])
-
-    def edit_macro(self, macro_data: dict):
-        for macro in self.macro_repository.apps:
-            if macro["path"] == macro_data["path"]:
-                dialog = AddMacroDialog(self, edit_mode=True, macro_data=macro, groups=self.groups)
-                if dialog.exec():
-                    updated, error = validate_macro_data(dialog.get_data())
-                    if error:
-                        QMessageBox.warning(self, "Ошибка", error)
-                        return
-                    if not updated:
-                        return
-                    updated["usage_count"] = macro.get("usage_count", 0)
-                    updated["source"] = macro.get("source", "manual")
-                    if updated.get("group") not in self.groups:
-                        self.groups.append(updated.get("group"))
-                        self.setup_tabs()
-                    self.service.update_macro(macro["path"], updated)
-                    self.schedule_save()
-                    self.refresh_view()
-                    logger.info("Изменен макрос: %s", updated["name"])
-                break
-
-    def delete_macro(self, macro_data: dict):
-        if self.service.delete_macro(macro_data["path"]):
-            logger.info("Удален макрос: %s", macro_data["name"])
             self.schedule_save()
             self.refresh_view()
 
@@ -774,24 +769,6 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
         self.refresh_view()
         logger.info("Удалены все приложения")
-
-    def clear_all_macros(self):
-        if not self.macro_repository.apps:
-            QMessageBox.information(self, "Удалить все", "Список макросов уже пуст.")
-            return
-        confirm = QMessageBox.question(
-            self,
-            "Удалить все",
-            "Удалить все макросы из лаунчера?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if confirm != QMessageBox.Yes:
-            return
-        self.service.clear_macros()
-        self.schedule_save()
-        self.refresh_view()
-        logger.info("Удалены все макросы")
 
     def clear_all_links(self):
         links = [app for app in self.repository.apps if app.get("type") == "url"]
@@ -841,20 +818,8 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
         self.refresh_view()
 
-    def toggle_macro_favorite(self, macro_data: dict):
-        if not self.service.toggle_macro_favorite(macro_data["path"]):
-            return
-        self.schedule_save()
-        self.refresh_view()
-
     def move_app_to_group(self, app_data: dict, group: str):
         if not self.service.move_app_to_group(app_data["path"], group):
-            return
-        self.schedule_save()
-        self.refresh_view()
-
-    def move_macro_to_group(self, macro_data: dict, group: str):
-        if not self.service.move_macro_to_group(macro_data["path"], group):
             return
         self.schedule_save()
         self.refresh_view()
@@ -865,27 +830,13 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
         self.refresh_view()
 
-    def remove_macro_from_group(self, macro_data: dict, group: str):
-        if not self.service.remove_macro_from_group(macro_data["path"], group):
-            return
-        self.schedule_save()
-        self.refresh_view()
-
     def move_app_by_path(self, app_path: str, group: str):
-        if self.is_macro_section:
-            if self.service.move_macro_to_group(app_path, group):
-                self.schedule_save()
-                self.refresh_view()
-            return
         if self.service.move_app_to_group(app_path, group):
             self.schedule_save()
             self.refresh_view()
 
     def launch_item(self, app_data: dict):
-        if self.is_macro_section:
-            self.launch_macro(app_data)
-        else:
-            self.launch_app(app_data)
+        self.launch_app(app_data)
 
     def launch_app(self, app_data: dict):
         success, error = self.launch_service.launch(app_data)
@@ -897,17 +848,6 @@ class AppLauncher(QMainWindow):
             self._collapse_to_tray()
         updated = self.service.increment_usage(app_data["path"]) or app_data
         app_data.update(updated)
-        self.schedule_save()
-        self.refresh_view()
-
-    def launch_macro(self, macro_data: dict):
-        success, error = self.launch_service.launch(macro_data)
-        if not success:
-            if error:
-                QMessageBox.warning(self, "Ошибка", error)
-            return
-        updated = self.service.increment_macro_usage(macro_data["path"]) or macro_data
-        macro_data.update(updated)
         self.schedule_save()
         self.refresh_view()
 
@@ -927,19 +867,17 @@ class AppLauncher(QMainWindow):
         QApplication.clipboard().setText(link_value)
 
     def refresh_view(self):
-        if self.is_clipboard_section or self.is_notes_section:
+        if self.is_notes_section:
             return
         current_group = self.current_group
         query = self.search_input.text()
-        version = self.service.macro_version if self.is_macro_section else self.service.version
+        version = self.service.version
         render_state = (self.current_section, self.view_mode, current_group, query, version)
         if self._last_render_state == render_state:
             return
         self._last_render_state = render_state
 
-        if self.is_macro_section:
-            filtered = self.service.filtered_macros(query, current_group)
-        elif self.is_folders_section:
+        if self.is_folders_section:
             filtered = [
                 app
                 for app in self.service.filtered_apps(query, current_group)
@@ -980,15 +918,14 @@ class AppLauncher(QMainWindow):
                 available_groups=self.groups,
                 current_group=current_group,
                 default_group=self.default_group,
-                show_favorite=not self.is_macro_section,
+                show_favorite=True,
             )
             btn.activated.connect(self.launch_item)
             btn.editRequested.connect(self.edit_item)
             btn.deleteRequested.connect(self.delete_item)
             btn.openLocationRequested.connect(self.open_location)
             btn.copyLinkRequested.connect(self.copy_link)
-            if not self.is_macro_section:
-                btn.favoriteToggled.connect(self.toggle_favorite)
+            btn.favoriteToggled.connect(self.toggle_favorite)
             btn.moveRequested.connect(self.move_item_to_group)
             self.grid_layout.addWidget(btn)
 
@@ -1006,24 +943,21 @@ class AppLauncher(QMainWindow):
                 available_groups=self.groups,
                 current_group=current_group,
                 default_group=self.default_group,
-                show_favorite=not self.is_macro_section,
+                show_favorite=True,
             )
             item.activated.connect(self.launch_item)
             item.editRequested.connect(self.edit_item)
             item.deleteRequested.connect(self.delete_item)
             item.openLocationRequested.connect(self.open_location)
             item.copyLinkRequested.connect(self.copy_link)
-            if not self.is_macro_section:
-                item.favoriteToggled.connect(self.toggle_favorite)
+            item.favoriteToggled.connect(self.toggle_favorite)
             item.moveRequested.connect(self.move_item_to_group)
             self.list_layout.addWidget(item)
         self.list_layout.addStretch()
 
     def launch_top_result(self):
         current_group = self.current_group
-        if self.is_macro_section:
-            filtered = self.service.filtered_macros(self.search_input.text(), current_group)
-        elif self.is_folders_section:
+        if self.is_folders_section:
             filtered = [
                 app
                 for app in self.service.filtered_apps(self.search_input.text(), current_group)
@@ -1108,27 +1042,18 @@ class AppLauncher(QMainWindow):
 
     @property
     def current_group(self) -> str:
-        if self.is_clipboard_section:
-            return DEFAULT_GROUP
         return self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else DEFAULT_GROUP
 
     @property
     def groups(self) -> list[str]:
-        if self.is_clipboard_section:
-            return self.service.groups
-        return self.service.macro_groups if self.is_macro_section else self.service.groups
+        return self.service.groups
 
     @groups.setter
     def groups(self, value: list[str]) -> None:
-        if self.is_macro_section:
-            self.service.macro_groups = value
-        else:
-            self.service.groups = value
+        self.service.groups = value
 
     @property
     def current_section(self) -> str:
-        if self.is_macro_section:
-            return "macros"
         if self.is_folders_section:
             return "folders"
         if self.is_links_section:
@@ -1136,19 +1061,16 @@ class AppLauncher(QMainWindow):
         return "apps"
 
     @property
-    def default_group(self) -> str | None:
-        return DEFAULT_GROUP if not self.is_macro_section else None
+    def default_group(self) -> str:
+        return DEFAULT_GROUP
 
     @property
     def view_mode(self) -> str:
-        return self.service.macro_view_mode if self.is_macro_section else self.service.view_mode
+        return self.service.view_mode
 
     @view_mode.setter
     def view_mode(self, value: str) -> None:
-        if self.is_macro_section:
-            self.service.macro_view_mode = value
-        else:
-            self.service.view_mode = value
+        self.service.view_mode = value
 
     def _on_icon_updated(self, _path: str, _icon_path: str) -> None:
         self.schedule_save()
@@ -1159,9 +1081,6 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
 
     def on_section_changed(self, _index: int):
-        if self.is_clipboard_section:
-            self.content_stack.setCurrentWidget(self.clipboard_widget)
-            return
         if self.is_notes_section:
             self.content_stack.setCurrentWidget(self.notes_widget)
             return
@@ -1172,11 +1091,7 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
 
     def sync_section_controls(self):
-        if self.is_macro_section:
-            self.search_input.setPlaceholderText("Поиск макросов...")
-            self.add_btn.setText("Добавить макрос")
-            self.clear_btn.setText("Удалить все макросы")
-        elif self.is_folders_section:
+        if self.is_folders_section:
             self.search_input.setPlaceholderText("Поиск папок...")
             self.add_btn.setText("Добавить папку")
             self.clear_btn.setText("Удалить все папки")
@@ -1191,13 +1106,9 @@ class AppLauncher(QMainWindow):
         self._sync_view_toggle()
 
     def setup_tabs(self):
-        if self.is_clipboard_section:
-            return
         self.tabs.clear()
         for group in self.groups:
             self.tabs.addTab(QWidget(), group)
-        if not self.is_macro_section:
-            self.tabs.addTab(QWidget(), "+")
         self._sync_view_toggle()
         if self.view_mode == "list":
             self.view_stack.setCurrentWidget(self.list_container)
@@ -1205,34 +1116,30 @@ class AppLauncher(QMainWindow):
             self.view_stack.setCurrentWidget(self.grid_widget)
 
     def on_tab_clicked(self, index: int):
-        if self.is_macro_section:
+        self.refresh_view()
+
+    def add_group(self):
+        text, ok = QInputDialog.getText(self, "Новая группа", "Название группы:")
+        if not ok:
+            return
+        group_name = text.strip()
+        if not group_name:
+            QMessageBox.information(self, "Группа", "Название группы не может быть пустым.")
+            return
+        if group_name in self.groups:
+            self.tabs.setCurrentIndex(self.groups.index(group_name))
             self.refresh_view()
             return
-        if self.tabs.tabText(index) == "+":
-            text, ok = QInputDialog.getText(self, "Новая группа", "Название группы:")
-            target_index = 0
-            if ok:
-                group_name = text.strip()
-                if not group_name:
-                    QMessageBox.information(self, "Группа", "Название группы не может быть пустым.")
-                elif group_name == "+":
-                    QMessageBox.information(self, "Группа", "Имя '+' зарезервировано.")
-                elif group_name in self.groups:
-                    target_index = self.groups.index(group_name)
-                else:
-                    self.groups.append(group_name)
-                    self.setup_tabs()
-                    target_index = max(0, self.tabs.count() - 2)
-                    self.schedule_save()
-            self.tabs.setCurrentIndex(target_index)
-            self.refresh_view()
-            return
+        self.groups.append(group_name)
+        self.setup_tabs()
+        self.tabs.setCurrentIndex(max(0, self.tabs.count() - 1))
+        self.schedule_save()
         self.refresh_view()
 
     def show_tab_context_menu(self, pos):
         tab_bar = self.tab_bar
         index = tab_bar.tabAt(pos)
-        if index < 0 or tab_bar.tabText(index) == "+":
+        if index < 0:
             return
         group = tab_bar.tabText(index)
         if self.default_group and group == self.default_group:
@@ -1243,14 +1150,9 @@ class AppLauncher(QMainWindow):
             self.delete_group(group)
 
     def delete_group(self, group: str):
-        if group not in self.groups:
+        if group not in self.groups or group == DEFAULT_GROUP:
             return
-        if self.is_macro_section:
-            self.service.delete_macro_group(group)
-        else:
-            if group == DEFAULT_GROUP:
-                return
-            self.service.delete_group(group)
+        self.service.delete_group(group)
         self.setup_tabs()
         if self.current_group == group and self.groups:
             self.tabs.setCurrentIndex(0)
@@ -1274,10 +1176,10 @@ class AppLauncher(QMainWindow):
     def _sync_view_toggle(self):
         is_grid = self.view_mode == "grid"
         if is_grid:
-            self.view_toggle.setText("☰")
+            self.view_toggle.setText("?")
             self.view_toggle.setToolTip("Список")
         else:
-            self.view_toggle.setText("⧉")
+            self.view_toggle.setText("?")
             self.view_toggle.setToolTip("Сетка")
 
     def _resize_edges_at(self, pos: QPoint) -> Qt.Edges:
@@ -1328,7 +1230,7 @@ class AppLauncher(QMainWindow):
     def _hit_test_resize_native(self, screen_x: int, screen_y: int) -> int | None:
         if os.name != "nt":
             return None
-        rect = ctypes.wintypes.RECT()
+        rect = wintypes.RECT()
         hwnd = int(self.winId())
         if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             return None
@@ -1416,11 +1318,16 @@ class AppLauncher(QMainWindow):
     def nativeEvent(self, eventType, message):
         if os.name == "nt":
             try:
-                msg = ctypes.wintypes.MSG.from_address(int(message))
+                msg = wintypes.MSG.from_address(int(message))
             except Exception:
                 return super().nativeEvent(eventType, message)
             if msg.message == WM_NCCALCSIZE and msg.wParam:
                 return True, 0
+            if msg.message == WM_POWERBROADCAST and msg.wParam in {
+                PBT_APMRESUMESUSPEND,
+                PBT_APMRESUMEAUTOMATIC,
+            }:
+                QTimer.singleShot(0, self._ensure_hotkey_registration)
             if not self.isMaximized() and msg.message == WM_NCHITTEST:
                 x = ctypes.c_short(msg.lParam & 0xFFFF).value
                 y = ctypes.c_short((msg.lParam >> 16) & 0xFFFF).value
@@ -1435,10 +1342,6 @@ class AppLauncher(QMainWindow):
         # FlowLayout automatically handles resizing
 
     def setup_shortcuts(self):
-        shortcut = QShortcut(QKeySequence(self.service.global_hotkey), self)
-        shortcut.setContext(Qt.ApplicationShortcut)
-        shortcut.activated.connect(self._on_hotkey_activated)
-        self.toggle_shortcut = shortcut
         search_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
         search_shortcut.setContext(Qt.ApplicationShortcut)
         search_shortcut.activated.connect(self.universal_search.open_search)
@@ -1448,23 +1351,118 @@ class AppLauncher(QMainWindow):
         search_shortcut_meta.activated.connect(self.universal_search.open_search)
         self.search_shortcut_meta = search_shortcut_meta
         self._register_hotkey()
+        self._hotkey_health_timer = QTimer(self)
+        self._hotkey_health_timer.setInterval(15000)
+        self._hotkey_health_timer.timeout.connect(self._ensure_hotkey_registration)
+        self._hotkey_health_timer.start()
 
-    def _register_hotkey(self):
-        if not self.hotkey_service.register_hotkey(self.service.global_hotkey):
+    def _register_hotkey(self, hotkey: str | None = None) -> bool:
+        target_hotkey = (hotkey or self.service.global_hotkey or "").strip()
+        if not target_hotkey:
+            return False
+        if not self.hotkey_service.register_hotkey(target_hotkey):
             logger.warning("Глобальный хоткей не зарегистрирован")
+            return False
+        return True
 
     def update_hotkey(self, hotkey: str) -> None:
-        if not hotkey:
+        new_hotkey = (hotkey or "").strip()
+        if not new_hotkey:
             return
-        self.service.global_hotkey = hotkey
-        if self.toggle_shortcut:
-            self.toggle_shortcut.setKey(QKeySequence(hotkey))
-        self._register_hotkey()
+        previous_hotkey = (self.service.global_hotkey or "").strip()
+        if new_hotkey == previous_hotkey:
+            return
+        if not self._register_hotkey(new_hotkey):
+            if previous_hotkey:
+                self._register_hotkey(previous_hotkey)
+            if self.settings_dialog is not None:
+                self.settings_dialog.hotkey_widget.set_hotkey(previous_hotkey)
+            details = self.hotkey_service.last_error or "Неизвестная причина."
+            QMessageBox.warning(
+                self,
+                "Горячая клавиша",
+                "Не удалось зарегистрировать комбинацию. "
+                f"Возможно, она занята системой или другим приложением.\n\n{details}",
+            )
+            return
+        self.service.global_hotkey = new_hotkey
         self.schedule_save()
 
+    def _ensure_hotkey_registration(self) -> None:
+        if not self.hotkey_service.current_hotkey:
+            return
+        if not self.hotkey_service.ensure_hotkey_registered():
+            logger.warning("Не удалось восстановить регистрацию горячей клавиши")
+
+    def _on_application_state_changed(self, state: Qt.ApplicationState) -> None:
+        if state == Qt.ApplicationActive:
+            self._ensure_hotkey_registration()
+
     def _on_hotkey_activated(self):
-        self.show()
+        self._show_and_activate()
+
+    def _show_and_activate(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
         self.activateWindow()
+
+    def bind_single_instance_server(self, server: QLocalServer) -> None:
+        server.newConnection.connect(self._on_single_instance_connection)
+
+    def _on_single_instance_connection(self) -> None:
+        app = QApplication.instance()
+        server = getattr(app, "_single_instance_server", None)
+        if server is None:
+            return
+        while server.hasPendingConnections():
+            socket = server.nextPendingConnection()
+            if socket is None:
+                continue
+            self._ipc_clients.append(socket)
+            socket.readyRead.connect(lambda s=socket: self._on_single_instance_ready_read(s))
+            socket.disconnected.connect(lambda s=socket: self._on_single_instance_disconnected(s))
+            self._on_single_instance_ready_read(socket)
+
+    def _on_single_instance_disconnected(self, socket: QLocalSocket) -> None:
+        if socket in self._ipc_clients:
+            self._ipc_clients.remove(socket)
+        socket.deleteLater()
+
+    def _on_single_instance_ready_read(self, socket: QLocalSocket) -> None:
+        existing_buffer = socket.property("_applauncher_buffer") or b""
+        if isinstance(existing_buffer, str):
+            existing_buffer = existing_buffer.encode("utf-8", errors="replace")
+        incoming = bytes(socket.readAll())
+        payload_bytes = bytes(existing_buffer) + incoming
+        if b"\n" not in payload_bytes and socket.state() != QLocalSocket.UnconnectedState:
+            socket.setProperty("_applauncher_buffer", payload_bytes)
+            return
+        socket.setProperty("_applauncher_buffer", b"")
+        raw_payload = payload_bytes.decode("utf-8", errors="replace").strip()
+        if not raw_payload:
+            return
+        if "\n" in raw_payload:
+            raw_payload = raw_payload.split("\n", 1)[0]
+        try:
+            payload = json.loads(raw_payload)
+            args = payload.get("args", []) if isinstance(payload, dict) else []
+            paths = [str(item) for item in args if str(item).strip()]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            paths = []
+        self.handle_external_paths(paths)
+
+    def handle_external_paths(self, paths: list[str]) -> None:
+        self._show_and_activate()
+        added = False
+        for file_path in paths:
+            if self._import_path_into_current_group(file_path, source="external"):
+                added = True
+        if added:
+            self.schedule_save()
+            self.refresh_view()
 
     def _should_collapse_after_app_launch(self, app_data: dict) -> bool:
         app_type = (app_data.get("type") or "exe").lower()
@@ -1504,42 +1502,25 @@ class AppLauncher(QMainWindow):
         self.refresh_view()
 
     @property
-    def is_macro_section(self) -> bool:
+    def is_folders_section(self) -> bool:
         return self.section_tabs.currentIndex() == 1
 
     @property
     def is_links_section(self) -> bool:
-        return self.section_tabs.currentIndex() == 3
-
-    @property
-    def is_clipboard_section(self) -> bool:
-        return self.section_tabs.currentIndex() == 4
+        return self.section_tabs.currentIndex() == 2
 
     @property
     def is_notes_section(self) -> bool:
-        return self.section_tabs.currentIndex() == 5
-
-    @property
-    def is_folders_section(self) -> bool:
-        return self.section_tabs.currentIndex() == 2
+        return self.section_tabs.currentIndex() == 3
 
     def edit_item(self, item_data: dict):
-        if self.is_macro_section:
-            self.edit_macro(item_data)
-        else:
-            self.edit_app(item_data)
+        self.edit_app(item_data)
 
     def delete_item(self, item_data: dict):
-        if self.is_macro_section:
-            self.delete_macro(item_data)
-        else:
-            self.delete_app(item_data)
+        self.delete_app(item_data)
 
     def move_item_to_group(self, item_data: dict, group: str):
-        if self.is_macro_section:
-            self.move_macro_to_group(item_data, group)
-        else:
-            self.move_app_to_group(item_data, group)
+        self.move_app_to_group(item_data, group)
 
     def toggle_visibility(self):
         if self.isVisible():
@@ -1550,7 +1531,17 @@ class AppLauncher(QMainWindow):
 
     def _prepare_for_quit(self) -> None:
         self._flush_pending_save()
+        hotkey_timer = getattr(self, "_hotkey_health_timer", None)
+        if hotkey_timer is not None:
+            hotkey_timer.stop()
         self.hotkey_service.unregister_hotkey()
+        for socket in list(self._ipc_clients):
+            try:
+                socket.disconnectFromServer()
+            except Exception:
+                pass
+            socket.deleteLater()
+        self._ipc_clients.clear()
         if self.tray_icon is not None:
             self.tray_icon.hide()
             self.tray_icon.setContextMenu(None)
@@ -1570,10 +1561,20 @@ def run_app():
         app.setWindowIcon(app_icon)
     apply_design_system(app)
 
+    launch_args = [arg for arg in sys.argv[1:] if arg]
     server_name = "applauncher_single_instance"
     socket = QLocalSocket()
     socket.connectToServer(server_name)
     if socket.waitForConnected(200):
+        if launch_args:
+            try:
+                payload = json.dumps({"args": launch_args}, ensure_ascii=False)
+                socket.write(payload.encode("utf-8") + b"\n")
+                socket.flush()
+                socket.waitForBytesWritten(200)
+            except Exception:
+                logger.debug("Failed to send launch arguments to existing instance", exc_info=True)
+        socket.disconnectFromServer()
         logger.info("Уже запущен экземпляр лаунчера, выход")
         return 0
 
@@ -1594,7 +1595,12 @@ def run_app():
         )
 
     window = AppLauncher()
+    if server.isListening():
+        window.bind_single_instance_server(server)
     if not app_icon.isNull():
         window.setWindowIcon(app_icon)
     window.show()
+    if launch_args:
+        window.handle_external_paths(launch_args)
     return app.exec()
+

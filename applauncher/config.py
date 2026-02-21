@@ -5,12 +5,14 @@ import json
 import logging
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
 APP_NAME = "AppLauncher"
+PORTABLE_MARKER = "portable.txt"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "apps": [],
@@ -127,6 +129,10 @@ def load_config(path: str) -> Dict[str, Any]:
 
 def resolve_config_path(filename: str = "launcher_config.json") -> str:
     """Resolve a per-user configuration path for the launcher."""
+    portable_dir = _resolve_portable_dir()
+    if portable_dir is not None:
+        return str(portable_dir / filename)
+
     appdata = os.environ.get("APPDATA")
     if appdata:
         base_dir = Path(appdata)
@@ -143,6 +149,12 @@ def resolve_config_path(filename: str = "launcher_config.json") -> str:
 
 def resolve_icons_cache_dir(folder_name: str = "launcher_icons") -> str:
     """Resolve a per-user cache directory for extracted icons."""
+    portable_dir = _resolve_portable_dir()
+    if portable_dir is not None:
+        cache_dir = portable_dir / folder_name
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return str(cache_dir)
+
     appdata = os.environ.get("APPDATA")
     if appdata:
         base_dir = Path(appdata)
@@ -155,6 +167,33 @@ def resolve_icons_cache_dir(folder_name: str = "launcher_icons") -> str:
     cache_dir = base_dir / APP_NAME / folder_name
     cache_dir.mkdir(parents=True, exist_ok=True)
     return str(cache_dir)
+
+
+def _resolve_portable_dir() -> Path | None:
+    """Return portable data directory when marker exists in runtime folder."""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent)
+    try:
+        candidates.append(Path.cwd().resolve())
+    except OSError:
+        pass
+
+    for candidate in candidates:
+        marker = candidate / PORTABLE_MARKER
+        if not marker.exists():
+            continue
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe_file = candidate / f".{APP_NAME.lower()}_portable_write_check.tmp"
+            with open(probe_file, "w", encoding="utf-8") as handle:
+                handle.write("ok")
+            probe_file.unlink(missing_ok=True)
+            return candidate
+        except OSError as err:  # pragma: no cover - filesystem dependent
+            logger.warning("Portable mode requested but directory is not writable: %s", err)
+            continue
+    return None
 
 
 def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None:
