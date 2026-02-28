@@ -43,6 +43,7 @@ from .layouts import FlowLayout
 from .styles import TOKENS, apply_design_system, apply_shadow
 from .widgets import AppButton, AppListItem, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
+from ..services.file_transfer_service import FileTransferService
 from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
 from ..services.launcher_service import LauncherService
@@ -163,6 +164,7 @@ class AppLauncher(QMainWindow):
         self._did_final_flush = False
         self._state_loaded = False
         self.launch_service = LaunchService()
+        self.file_transfer_service = FileTransferService()
         self.hotkey_service = HotkeyService(self)
         self.search_service = SearchService(self.repository, self.macro_repository)
         self.icon_service = IconService(self.repository)
@@ -866,6 +868,51 @@ class AppLauncher(QMainWindow):
             return
         QApplication.clipboard().setText(link_value)
 
+    def _copy_dropped_files_to_folder(self, app_data: dict, source_paths: list[str]) -> None:
+        if app_data.get("type") != "folder":
+            return
+        summary = self.file_transfer_service.copy_files_to_folder(
+            source_paths,
+            app_data.get("path", ""),
+        )
+        if summary.copied == 0 and summary.failed > 0:
+            error_lines = [f"Не удалось скопировать файлы в:\n{summary.target_folder}"]
+            for item in summary.errors[:3]:
+                source_name = item.source or "<неизвестный файл>"
+                error_lines.append(f"- {source_name}: {item.reason}")
+            extra_errors = len(summary.errors) - 3
+            if extra_errors > 0:
+                error_lines.append(f"... и еще {extra_errors} ошибок")
+            QMessageBox.warning(self, "Ошибка копирования", "\n".join(error_lines))
+            logger.warning(
+                "Failed to copy dropped files to folder %s: failed=%s",
+                summary.target_folder,
+                summary.failed,
+            )
+            return
+
+        info_lines = [
+            f"Скопировано: {summary.copied} из {summary.requested}",
+            f"Папка: {summary.target_folder}",
+            f"Пропущено: {summary.skipped}",
+            f"Ошибок: {summary.failed}",
+        ]
+        if summary.failed > 0:
+            for item in summary.errors[:3]:
+                source_name = item.source or "<неизвестный файл>"
+                info_lines.append(f"- {source_name}: {item.reason}")
+            extra_errors = len(summary.errors) - 3
+            if extra_errors > 0:
+                info_lines.append(f"... и еще {extra_errors} ошибок")
+        QMessageBox.information(self, "Копирование завершено", "\n".join(info_lines))
+        logger.info(
+            "Copied dropped files to folder %s: copied=%s skipped=%s failed=%s",
+            summary.target_folder,
+            summary.copied,
+            summary.skipped,
+            summary.failed,
+        )
+
     def refresh_view(self):
         if self.is_notes_section:
             return
@@ -927,6 +974,7 @@ class AppLauncher(QMainWindow):
             btn.copyLinkRequested.connect(self.copy_link)
             btn.favoriteToggled.connect(self.toggle_favorite)
             btn.moveRequested.connect(self.move_item_to_group)
+            btn.filesDroppedToFolder.connect(self._copy_dropped_files_to_folder)
             self.grid_layout.addWidget(btn)
 
     def populate_list(self, apps: list[dict]):
@@ -952,6 +1000,7 @@ class AppLauncher(QMainWindow):
             item.copyLinkRequested.connect(self.copy_link)
             item.favoriteToggled.connect(self.toggle_favorite)
             item.moveRequested.connect(self.move_item_to_group)
+            item.filesDroppedToFolder.connect(self._copy_dropped_files_to_folder)
             self.list_layout.addWidget(item)
         self.list_layout.addStretch()
 

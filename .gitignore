@@ -121,9 +121,13 @@ temp/
 *.db
 # logs
 *.log
+*.ini
 
 # local configs
 launcher_config.json
 
 # generated / assets
 *.png
+todo.md
+research.md
+plan.md

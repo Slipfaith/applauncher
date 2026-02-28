@@ -28,6 +28,19 @@ from .notes_widget import NotesWidget  # noqa: E402
 from .universal_search_widget import UniversalSearchWidget  # noqa: E402
 
 
+def _extract_local_paths(mime_data: QMimeData) -> list[str]:
+    if not mime_data.hasUrls():
+        return []
+    local_paths: list[str] = []
+    for url in mime_data.urls():
+        if not url.isLocalFile():
+            continue
+        local_path = (url.toLocalFile() or "").strip()
+        if local_path:
+            local_paths.append(local_path)
+    return local_paths
+
+
 class AppButton(QPushButton):
     """Button used in grid view to display an application."""
 
@@ -38,6 +51,7 @@ class AppButton(QPushButton):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
+    filesDroppedToFolder = Signal(object, list)
 
     def __init__(
         self,
@@ -60,6 +74,8 @@ class AppButton(QPushButton):
         prefix = "★ " if self.show_favorite and app_data.get("favorite") else ""
         display_name = f"{prefix}{app_data['name']}"
         app_type = app_data.get("type", "exe")
+        self._accept_external_files = app_type == "folder"
+        self.setAcceptDrops(self._accept_external_files)
         display_label = display_name
         icon_path = app_data.get("icon_path", "")
         has_custom_icon = bool(app_data.get("custom_icon"))
@@ -304,6 +320,29 @@ class AppButton(QPushButton):
             self._animate_press(0.0, 120)
         super().leaveEvent(event)
 
+    def dragEnterEvent(self, event):
+        if self._accept_external_files and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._accept_external_files and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not self._accept_external_files:
+            super().dropEvent(event)
+            return
+        local_paths = _extract_local_paths(event.mimeData())
+        if not local_paths:
+            super().dropEvent(event)
+            return
+        self.filesDroppedToFolder.emit(self.app_data, local_paths)
+        event.acceptProposedAction()
+
 
 class AppListItem(QWidget):
     """Compact list entry for list mode."""
@@ -315,6 +354,7 @@ class AppListItem(QWidget):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
+    filesDroppedToFolder = Signal(object, list)
 
     def __init__(
         self,
@@ -333,6 +373,8 @@ class AppListItem(QWidget):
         self.show_favorite = show_favorite
         self._drag_start_pos = None
         self._dragging = False
+        self._accept_external_files = app_data.get("type", "exe") == "folder"
+        self.setAcceptDrops(self._accept_external_files)
         self.setProperty("role", "listItem")
 
         from PySide6.QtWidgets import QHBoxLayout
@@ -419,6 +461,29 @@ class AppListItem(QWidget):
         if event.button() == Qt.LeftButton and not self._dragging:
             self.activated.emit(self.app_data)
         super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event):
+        if self._accept_external_files and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._accept_external_files and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not self._accept_external_files:
+            super().dropEvent(event)
+            return
+        local_paths = _extract_local_paths(event.mimeData())
+        if not local_paths:
+            super().dropEvent(event)
+            return
+        self.filesDroppedToFolder.emit(self.app_data, local_paths)
+        event.acceptProposedAction()
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
