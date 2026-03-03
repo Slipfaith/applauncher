@@ -1,6 +1,5 @@
 """Custom widgets for the launcher UI."""
 import os
-import logging
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -17,29 +16,14 @@ from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QColor
 
 from ..styles import TOKENS
 from ...repository import DEFAULT_GROUP
+from ..drop_payload import can_extract_dropped_files, extract_dropped_files
 from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 from ..tile_image.utils import load_icon_file
-
-logger = logging.getLogger(__name__)
 
 from .clipboard_history_widget import ClipboardHistoryWidget  # noqa: E402
 from .hotkey_settings_widget import HotkeySettingsWidget  # noqa: E402
 from .notes_widget import NotesWidget  # noqa: E402
 from .universal_search_widget import UniversalSearchWidget  # noqa: E402
-
-
-def _extract_local_paths(mime_data: QMimeData) -> list[str]:
-    if not mime_data.hasUrls():
-        return []
-    local_paths: list[str] = []
-    for url in mime_data.urls():
-        if not url.isLocalFile():
-            continue
-        local_path = (url.toLocalFile() or "").strip()
-        if local_path:
-            local_paths.append(local_path)
-    return local_paths
-
 
 class AppButton(QPushButton):
     """Button used in grid view to display an application."""
@@ -321,13 +305,13 @@ class AppButton(QPushButton):
         super().leaveEvent(event)
 
     def dragEnterEvent(self, event):
-        if self._accept_external_files and event.mimeData().hasUrls():
+        if self._accept_external_files and can_extract_dropped_files(event.mimeData()):
             event.acceptProposedAction()
             return
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
-        if self._accept_external_files and event.mimeData().hasUrls():
+        if self._accept_external_files and can_extract_dropped_files(event.mimeData()):
             event.acceptProposedAction()
             return
         super().dragMoveEvent(event)
@@ -336,11 +320,14 @@ class AppButton(QPushButton):
         if not self._accept_external_files:
             super().dropEvent(event)
             return
-        local_paths = _extract_local_paths(event.mimeData())
-        if not local_paths:
+        dropped_files = extract_dropped_files(event.mimeData())
+        if not dropped_files.paths:
             super().dropEvent(event)
             return
-        self.filesDroppedToFolder.emit(self.app_data, local_paths)
+        try:
+            self.filesDroppedToFolder.emit(self.app_data, dropped_files.paths)
+        finally:
+            dropped_files.cleanup()
         event.acceptProposedAction()
 
 
@@ -463,13 +450,13 @@ class AppListItem(QWidget):
         super().mouseReleaseEvent(event)
 
     def dragEnterEvent(self, event):
-        if self._accept_external_files and event.mimeData().hasUrls():
+        if self._accept_external_files and can_extract_dropped_files(event.mimeData()):
             event.acceptProposedAction()
             return
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
-        if self._accept_external_files and event.mimeData().hasUrls():
+        if self._accept_external_files and can_extract_dropped_files(event.mimeData()):
             event.acceptProposedAction()
             return
         super().dragMoveEvent(event)
@@ -478,11 +465,14 @@ class AppListItem(QWidget):
         if not self._accept_external_files:
             super().dropEvent(event)
             return
-        local_paths = _extract_local_paths(event.mimeData())
-        if not local_paths:
+        dropped_files = extract_dropped_files(event.mimeData())
+        if not dropped_files.paths:
             super().dropEvent(event)
             return
-        self.filesDroppedToFolder.emit(self.app_data, local_paths)
+        try:
+            self.filesDroppedToFolder.emit(self.app_data, dropped_files.paths)
+        finally:
+            dropped_files.cleanup()
         event.acceptProposedAction()
 
     def show_context_menu(self, pos):
