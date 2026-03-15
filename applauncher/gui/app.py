@@ -37,16 +37,23 @@ from PySide6.QtGui import (
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
-from .dialogs import AddAppDialog, SettingsDialog
+from .dialogs import AddAppDialog, HotkeyCaptureDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
+from .local_shortcut_registry import LocalShortcutRegistry
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .widgets import AppButton, AppListItem, NotesWidget, TitleBar, UniversalSearchWidget
+from .widgets import AppButton, AppListItem, HotkeyHudWidget, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
 from ..services.file_transfer_service import FileTransferService
 from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
 from ..services.launcher_service import LauncherService
+from ..services.local_hotkeys import (
+    find_local_hotkey_conflict,
+    format_hotkey_for_display,
+    normalize_hotkey_text,
+    validate_local_hotkey_assignment,
+)
 from ..services.search_service import SearchService
 from ..services.validation import (
     extract_shortcut_data,
@@ -166,6 +173,7 @@ class AppLauncher(QMainWindow):
         self.launch_service = LaunchService()
         self.file_transfer_service = FileTransferService()
         self.hotkey_service = HotkeyService(self)
+        self.local_shortcut_registry = LocalShortcutRegistry(self, self.launch_item)
         self.search_service = SearchService(self.repository, self.macro_repository)
         self.icon_service = IconService(self.repository)
         self.icon_service.iconUpdated.connect(self._on_icon_updated)
@@ -227,6 +235,10 @@ class AppLauncher(QMainWindow):
         settings_layout.addWidget(settings_button)
         self.menu_button = menu_button
         main_layout.addWidget(settings_bar)
+
+        self.hotkey_hud = HotkeyHudWidget()
+        self.hotkey_hud.slot_clicked.connect(self.launch_item)
+        main_layout.addWidget(self.hotkey_hud)
 
         section_container = QWidget()
         section_layout = QVBoxLayout()
@@ -525,7 +537,7 @@ class AppLauncher(QMainWindow):
         QMessageBox.information(
             self,
             "О программе",
-            "version: 2.0\n from Sha by slipfaith",
+            "version: 2.1\n from Sha by slipfaith",
         )
 
     def closeEvent(self, event):
@@ -718,6 +730,7 @@ class AppLauncher(QMainWindow):
                     previous_custom_icon = app.get("custom_icon", False)
                     path_changed = updated.get("path") != app.get("path")
                     updated["usage_count"] = app.get("usage_count", 0)
+                    updated["local_hotkey"] = app.get("local_hotkey", "")
                     updated["source"] = app.get("source", "manual")
                     if updated.get("icon_path") != previous_icon:
                         updated["custom_icon"] = bool(updated.get("icon_path"))
@@ -734,6 +747,7 @@ class AppLauncher(QMainWindow):
                     if previous_icon and previous_icon != new_icon:
                         self.icon_service.cleanup_icon_cache(previous_icon)
                     self.icon_service.start_extraction(stored or updated)
+                    self._rebuild_local_shortcuts()
                     self.schedule_save()
                     self.refresh_view()
                     logger.info("??????? ???????: %s", updated["name"])
@@ -745,6 +759,7 @@ class AppLauncher(QMainWindow):
             return
         if self.service.delete_app(app_data["path"]):
             self.icon_service.cleanup_icon_cache(app_data.get("icon_path"))
+            self._rebuild_local_shortcuts()
             logger.info("Удален элемент: %s", app_data["name"])
             self.schedule_save()
             self.refresh_view()
@@ -768,6 +783,7 @@ class AppLauncher(QMainWindow):
         for app in apps:
             self.icon_service.cleanup_icon_cache(app.get("icon_path"))
         self.service.clear_regular_apps()
+        self._rebuild_local_shortcuts()
         self.schedule_save()
         self.refresh_view()
         logger.info("Удалены все приложения")
@@ -789,6 +805,7 @@ class AppLauncher(QMainWindow):
         for app in links:
             self.icon_service.cleanup_icon_cache(app.get("icon_path"))
         self.service.clear_links()
+        self._rebuild_local_shortcuts()
         self.schedule_save()
         self.refresh_view()
         logger.info("Удалены все ссылки")
@@ -810,6 +827,7 @@ class AppLauncher(QMainWindow):
         for app in folders:
             self.icon_service.cleanup_icon_cache(app.get("icon_path"))
         self.service.clear_folders()
+        self._rebuild_local_shortcuts()
         self.schedule_save()
         self.refresh_view()
         logger.info("Удалены все папки")
@@ -867,6 +885,82 @@ class AppLauncher(QMainWindow):
             QMessageBox.information(self, "Информация", "Ссылка не указана.")
             return
         QApplication.clipboard().setText(link_value)
+
+    def assign_local_hotkey(self, app_data: dict) -> None:
+        app_path = str(app_data.get("path") or "").strip()
+        if not app_path:
+            QMessageBox.warning(self, "Горячая клавиша", "У элемента не указан путь.")
+            return
+
+        current_hotkey = format_hotkey_for_display(str(app_data.get("local_hotkey") or ""))
+        while True:
+            dialog = HotkeyCaptureDialog(self, current_hotkey=current_hotkey)
+            if not dialog.exec():
+                return
+
+            selected_hotkey = format_hotkey_for_display(dialog.selected_hotkey or "")
+            error = validate_local_hotkey_assignment(
+                selected_hotkey,
+                self.repository.apps,
+                global_hotkey=self.service.global_hotkey,
+                excluded_path=app_path,
+            )
+            if error:
+                QMessageBox.warning(self, "Горячая клавиша", error)
+                current_hotkey = selected_hotkey or current_hotkey
+                continue
+
+            stored = self._update_app_local_hotkey(app_path, selected_hotkey)
+            if stored is None:
+                QMessageBox.warning(
+                    self,
+                    "Горячая клавиша",
+                    "Не удалось сохранить горячую клавишу для выбранного элемента.",
+                )
+                return
+            app_data.update(stored)
+            self._rebuild_local_shortcuts()
+            self.schedule_save()
+            self.refresh_view()
+            logger.info(
+                "Assigned local hotkey '%s' to %s",
+                selected_hotkey,
+                stored.get("name") or stored.get("path"),
+            )
+            return
+
+    def clear_local_hotkey(self, app_data: dict) -> None:
+        app_path = str(app_data.get("path") or "").strip()
+        if not app_path:
+            return
+        stored = self._update_app_local_hotkey(app_path, "")
+        if stored is None:
+            QMessageBox.warning(
+                self,
+                "Горячая клавиша",
+                "Не удалось очистить горячую клавишу для выбранного элемента.",
+            )
+            return
+        app_data.update(stored)
+        self._rebuild_local_shortcuts()
+        self.schedule_save()
+        self.refresh_view()
+        logger.info("Cleared local hotkey for %s", stored.get("name") or stored.get("path"))
+
+    def _update_app_local_hotkey(self, app_path: str, hotkey: str) -> dict | None:
+        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        if target is None:
+            return None
+        updated = dict(target)
+        updated["local_hotkey"] = format_hotkey_for_display(hotkey)
+        return self.service.update_app(target["path"], updated)
+
+    def _rebuild_local_shortcuts(self) -> None:
+        self.local_shortcut_registry.rebuild(self.repository.apps)
+        self._rebuild_hotkey_hud()
+
+    def _rebuild_hotkey_hud(self) -> None:
+        self.hotkey_hud.update_slots(self.repository.get_all_items())
 
     def _copy_dropped_files_to_folder(self, app_data: dict, source_paths: list[str]) -> None:
         if app_data.get("type") != "folder":
@@ -974,6 +1068,8 @@ class AppLauncher(QMainWindow):
             btn.copyLinkRequested.connect(self.copy_link)
             btn.favoriteToggled.connect(self.toggle_favorite)
             btn.moveRequested.connect(self.move_item_to_group)
+            btn.assignHotkeyRequested.connect(self.assign_local_hotkey)
+            btn.clearHotkeyRequested.connect(self.clear_local_hotkey)
             btn.filesDroppedToFolder.connect(self._copy_dropped_files_to_folder)
             self.grid_layout.addWidget(btn)
 
@@ -1000,6 +1096,8 @@ class AppLauncher(QMainWindow):
             item.copyLinkRequested.connect(self.copy_link)
             item.favoriteToggled.connect(self.toggle_favorite)
             item.moveRequested.connect(self.move_item_to_group)
+            item.assignHotkeyRequested.connect(self.assign_local_hotkey)
+            item.clearHotkeyRequested.connect(self.clear_local_hotkey)
             item.filesDroppedToFolder.connect(self._copy_dropped_files_to_folder)
             self.list_layout.addWidget(item)
         self.list_layout.addStretch()
@@ -1039,6 +1137,7 @@ class AppLauncher(QMainWindow):
         self._notes_dirty = False
         self.setup_tabs()
         self.sync_section_controls()
+        self._rebuild_local_shortcuts()
         self._last_render_state = None
         self._state_loaded = True
         if removed_cache_icons:
@@ -1415,11 +1514,24 @@ class AppLauncher(QMainWindow):
         return True
 
     def update_hotkey(self, hotkey: str) -> None:
-        new_hotkey = (hotkey or "").strip()
+        new_hotkey = format_hotkey_for_display(hotkey) or (hotkey or "").strip()
         if not new_hotkey:
             return
         previous_hotkey = (self.service.global_hotkey or "").strip()
-        if new_hotkey == previous_hotkey:
+        if normalize_hotkey_text(new_hotkey) == normalize_hotkey_text(previous_hotkey):
+            if self.settings_dialog is not None:
+                self.settings_dialog.hotkey_widget.set_hotkey(new_hotkey)
+            return
+        conflict_item = find_local_hotkey_conflict(self.repository.apps, new_hotkey)
+        if conflict_item is not None:
+            if self.settings_dialog is not None:
+                self.settings_dialog.hotkey_widget.set_hotkey(previous_hotkey)
+            conflict_name = conflict_item.get("name") or conflict_item.get("path") or "элементу"
+            QMessageBox.warning(
+                self,
+                "Горячая клавиша",
+                f'Комбинация уже назначена элементу "{conflict_name}".',
+            )
             return
         if not self._register_hotkey(new_hotkey):
             if previous_hotkey:
@@ -1450,6 +1562,9 @@ class AppLauncher(QMainWindow):
     def _on_hotkey_activated(self):
         self._show_and_activate()
 
+    def _scroll_to_top(self) -> None:
+        self.scroll_area.verticalScrollBar().setValue(0)
+
     def _show_and_activate(self) -> None:
         if self.isMinimized():
             self.showNormal()
@@ -1457,6 +1572,7 @@ class AppLauncher(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        self._scroll_to_top()
 
     def bind_single_instance_server(self, server: QLocalServer) -> None:
         server.newConnection.connect(self._on_single_instance_connection)
@@ -1577,6 +1693,7 @@ class AppLauncher(QMainWindow):
         else:
             self.show()
             self.activateWindow()
+            self._scroll_to_top()
 
     def _prepare_for_quit(self) -> None:
         self._flush_pending_save()
@@ -1584,6 +1701,7 @@ class AppLauncher(QMainWindow):
         if hotkey_timer is not None:
             hotkey_timer.stop()
         self.hotkey_service.unregister_hotkey()
+        self.local_shortcut_registry.clear()
         for socket in list(self._ipc_clients):
             try:
                 socket.disconnectFromServer()

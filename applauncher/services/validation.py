@@ -204,6 +204,7 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
     group = (data.get("group") or "").strip()
     data["group"] = group or DEFAULT_GROUP
     data.setdefault("usage_count", 0)
+    data.setdefault("local_hotkey", "")
     data.setdefault("favorite", False)
     data.setdefault("args", [])
     data.setdefault("source", "manual")
@@ -272,6 +273,7 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
     fallback.setdefault("type", "exe")
     fallback.setdefault("group", DEFAULT_GROUP)
     fallback.setdefault("usage_count", 0)
+    fallback.setdefault("local_hotkey", "")
     fallback.setdefault("favorite", False)
     fallback.setdefault("source", "manual")
     if fallback.get("type") == "url":

@@ -4,6 +4,7 @@ import os
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QWidget,
@@ -19,6 +20,7 @@ from ...repository import DEFAULT_GROUP
 from ..drop_payload import can_extract_dropped_files, extract_dropped_files
 from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 from ..tile_image.utils import load_icon_file
+from ...services.local_hotkeys import format_hotkey_for_display
 
 from .clipboard_history_widget import ClipboardHistoryWidget  # noqa: E402
 from .hotkey_settings_widget import HotkeySettingsWidget  # noqa: E402
@@ -35,6 +37,8 @@ class AppButton(QPushButton):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
+    assignHotkeyRequested = Signal(object)
+    clearHotkeyRequested = Signal(object)
     filesDroppedToFolder = Signal(object, list)
 
     def __init__(
@@ -70,7 +74,11 @@ class AppButton(QPushButton):
                 display_label = f"🌐 {display_name}"
         elif app_type == "folder" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"📁 {display_name}"
-        self.setToolTip(display_name)
+        local_hotkey = (app_data.get("local_hotkey") or "").strip()
+        tooltip_lines = [display_name]
+        if local_hotkey:
+            tooltip_lines.append(f"Горячая клавиша: {local_hotkey}")
+        self.setToolTip("\n".join(tooltip_lines))
         self.setText("" if has_custom_icon else self._wrap_text(display_label))
         if icon_path and os.path.exists(icon_path):
             pixmap = load_icon_file(icon_path)
@@ -228,6 +236,14 @@ class AppButton(QPushButton):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        current_hotkey = (self.app_data.get("local_hotkey") or "").strip()
+        if current_hotkey:
+            hotkey_action = menu.addAction(f"⌨️ Изменить горячую клавишу ({current_hotkey})")
+        else:
+            hotkey_action = menu.addAction("⌨️ Назначить горячую клавишу")
+        clear_hotkey_action = None
+        if current_hotkey:
+            clear_hotkey_action = menu.addAction("🧹 Удалить горячую клавишу")
         copy_link_action = None
         if self.app_data.get("type") == "url":
             copy_link_action = menu.addAction("🔗 Скопировать ссылку")
@@ -258,6 +274,10 @@ class AppButton(QPushButton):
             return
         if action == edit_action:
             self.editRequested.emit(self.app_data)
+        elif action == hotkey_action:
+            self.assignHotkeyRequested.emit(self.app_data)
+        elif clear_hotkey_action and action == clear_hotkey_action:
+            self.clearHotkeyRequested.emit(self.app_data)
         elif action == delete_action:
             self.deleteRequested.emit(self.app_data)
         elif action == trash_action:
@@ -341,6 +361,8 @@ class AppListItem(QWidget):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
+    assignHotkeyRequested = Signal(object)
+    clearHotkeyRequested = Signal(object)
     filesDroppedToFolder = Signal(object, list)
 
     def __init__(
@@ -363,6 +385,11 @@ class AppListItem(QWidget):
         self._accept_external_files = app_data.get("type", "exe") == "folder"
         self.setAcceptDrops(self._accept_external_files)
         self.setProperty("role", "listItem")
+        local_hotkey = (app_data.get("local_hotkey") or "").strip()
+        tooltip_lines = [app_data.get("name", "")]
+        if local_hotkey:
+            tooltip_lines.append(f"Горячая клавиша: {local_hotkey}")
+        self.setToolTip("\n".join(line for line in tooltip_lines if line))
 
         from PySide6.QtWidgets import QHBoxLayout
 
@@ -479,6 +506,14 @@ class AppListItem(QWidget):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        current_hotkey = (self.app_data.get("local_hotkey") or "").strip()
+        if current_hotkey:
+            hotkey_action = menu.addAction(f"⌨️ Изменить горячую клавишу ({current_hotkey})")
+        else:
+            hotkey_action = menu.addAction("⌨️ Назначить горячую клавишу")
+        clear_hotkey_action = None
+        if current_hotkey:
+            clear_hotkey_action = menu.addAction("🧹 Удалить горячую клавишу")
         copy_link_action = None
         if self.app_data.get("type") == "url":
             copy_link_action = menu.addAction("🔗 Скопировать ссылку")
@@ -509,6 +544,10 @@ class AppListItem(QWidget):
             return
         if action == edit_action:
             self.editRequested.emit(self.app_data)
+        elif action == hotkey_action:
+            self.assignHotkeyRequested.emit(self.app_data)
+        elif clear_hotkey_action and action == clear_hotkey_action:
+            self.clearHotkeyRequested.emit(self.app_data)
         elif action == delete_action:
             self.deleteRequested.emit(self.app_data)
         elif action == trash_action:
@@ -521,6 +560,100 @@ class AppListItem(QWidget):
             self.favoriteToggled.emit(self.app_data)
         elif action in move_action_map:
             self.moveRequested.emit(self.app_data, move_action_map[action])
+
+
+class HotkeySlotWidget(QWidget):
+    """Single slot in the hotkey HUD: app icon with hotkey shown in tooltip."""
+
+    clicked = Signal(dict)
+
+    def __init__(self, app_data: dict, parent=None):
+        super().__init__(parent)
+        self.app_data = app_data
+        self.setCursor(Qt.PointingHandCursor)
+        hotkey_text = format_hotkey_for_display(app_data.get("local_hotkey", ""))
+        self.setToolTip(f"{app_data.get('name', '')}\n{hotkey_text}")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+
+        icon_label = QLabel()
+        icon_label.setFixedSize(34, 34)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_path = app_data.get("icon_path", "")
+        if icon_path and os.path.exists(icon_path):
+            pixmap = load_icon_file(icon_path)
+            if not pixmap.isNull():
+                if app_data.get("custom_icon"):
+                    frame = resolve_icon_frame(app_data)
+                    pixmap = render_framed_pixmap(pixmap, QSize(34, 34), frame)
+                else:
+                    pixmap = pixmap.scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                icon_label.setPixmap(pixmap)
+        else:
+            app_type = app_data.get("type", "exe")
+            if app_type == "url":
+                icon_label.setText("🌐")
+            elif app_type == "folder":
+                icon_label.setText("📁")
+            else:
+                icon_label.setText("🔲")
+        layout.addWidget(icon_label, 0, Qt.AlignHCenter)
+
+        self.setLayout(layout)
+        self.setFixedSize(42, 42)
+        self._set_hovered(False)
+
+    def _set_hovered(self, hovered: bool) -> None:
+        bg = "rgba(255,255,255,25)" if hovered else "transparent"
+        self.setStyleSheet(f"HotkeySlotWidget {{ background: {bg}; border-radius: 6px; }}")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.app_data)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self._set_hovered(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._set_hovered(False)
+        super().leaveEvent(event)
+
+
+class HotkeyHudWidget(QWidget):
+    """Strip of HotkeySlotWidgets for apps that have local_hotkey assigned."""
+
+    slot_clicked = Signal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setLayout(layout)
+        self._slots: list[HotkeySlotWidget] = []
+        self.setVisible(False)
+
+    def update_slots(self, items: list[dict]) -> None:
+        layout = self.layout()
+        for slot in self._slots:
+            layout.removeWidget(slot)
+            slot.deleteLater()
+        self._slots.clear()
+
+        hotkey_items = [item for item in items if (item.get("local_hotkey") or "").strip()]
+        for item in hotkey_items:
+            slot = HotkeySlotWidget(item, self)
+            slot.clicked.connect(self.slot_clicked)
+            layout.addWidget(slot)
+            self._slots.append(slot)
+
+        self.setVisible(bool(hotkey_items))
 
 
 class TitleBar(QWidget):
