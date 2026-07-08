@@ -346,14 +346,6 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         color: {colors.text_primary};
     }}
 
-    QPushButton[role="appTile"][inputType="file"] {{
-        border: 1px dashed {colors.border_soft};
-    }}
-
-    QPushButton[role="appTile"][inputType="folder"] {{
-        border: 1px solid {colors.border};
-    }}
-
     QPushButton[role="appTile"][iconMode="full"] {{
         padding: 0px;
     }}
@@ -362,9 +354,9 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         background-color: {colors.surface_hover};
     }}
 
-    QPushButton[role="appTile"][runState="running"] {{
-        border: 2px solid {colors.accent};
-        background-color: {colors.surface_hover};
+    QPushButton[role="appTile"][dropActive="true"] {{
+        border: 2px dashed {colors.accent};
+        background-color: {colors.accent_soft};
     }}
 
     QWidget[role="listItem"] {{
@@ -378,8 +370,9 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-color: {colors.border};
     }}
 
-    QWidget[role="listItem"][runState="running"] {{
-        border-color: {colors.accent};
+    QWidget[role="listItem"][dropActive="true"] {{
+        border: 2px dashed {colors.accent};
+        background: {colors.accent_soft};
     }}
 
     QLabel[role="listTitle"] {{
@@ -509,6 +502,35 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     QScrollArea {{
         background: transparent;
         border: none;
+    }}
+
+    QListWidget#clipboardList {{
+        background: transparent;
+        border: none;
+    }}
+
+    QListWidget#clipboardList::item {{
+        background: transparent;
+        border: none;
+        margin-bottom: {spacing.xs}px;
+    }}
+
+    QListWidget#clipboardList::item:selected {{
+        background: transparent;
+    }}
+
+    QToolButton[role="clipAction"] {{
+        background-color: transparent;
+        border: none;
+        border-radius: {radii.sm}px;
+        padding: {spacing.xs}px {spacing.sm}px;
+        color: {colors.text_muted};
+        font-size: {typography.font_size_md}px;
+    }}
+
+    QToolButton[role="clipAction"]:hover {{
+        background-color: {colors.surface_hover};
+        color: {colors.text_primary};
     }}
     """
 

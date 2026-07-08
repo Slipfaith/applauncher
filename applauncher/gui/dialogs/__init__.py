@@ -10,14 +10,12 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QTextEdit,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import QSize
 
 from ..styles import TOKENS
 from ..tile_image import IconFrameEditor, clamp, default_icon_frame
-from ...repository import DEFAULT_MACRO_GROUPS
 
 logger = logging.getLogger(__name__)
 
@@ -249,121 +247,4 @@ class AddAppDialog(QDialog):
             "icon_frame_h": frame_h,
             "type": current_type,
             "group": self.group_input.currentText() or "Общее",
-        }
-
-
-class AddMacroDialog(QDialog):
-    def __init__(
-        self,
-        parent=None,
-        edit_mode: bool = False,
-        macro_data: dict | None = None,
-        groups: list[str] | None = None,
-    ):
-        super().__init__(parent)
-        self.setWindowTitle("Редактировать макрос" if edit_mode else "Добавить макрос")
-        self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
-        base_groups = groups or []
-        self.available_groups = list(dict.fromkeys([*DEFAULT_MACRO_GROUPS, *base_groups]))
-
-        layout = QVBoxLayout()
-        layout.setSpacing(TOKENS.spacing.lg)
-        layout.setContentsMargins(
-            TOKENS.spacing.xl,
-            TOKENS.spacing.xl,
-            TOKENS.spacing.xl,
-            TOKENS.spacing.xl,
-        )
-
-        type_label = QLabel("Группа")
-        layout.addWidget(type_label)
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(self.available_groups)
-        layout.addWidget(self.type_combo)
-
-        name_label = QLabel("Название")
-        layout.addWidget(name_label)
-        self.name_input = QLineEdit()
-        if macro_data:
-            self.name_input.setText(macro_data.get("name", ""))
-        layout.addWidget(self.name_input)
-
-        self.path_label = QLabel("Путь к файлу макроса")
-        layout.addWidget(self.path_label)
-        path_layout = QHBoxLayout()
-        self.path_input = QLineEdit()
-        if macro_data:
-            self.path_input.setText(macro_data.get("path", ""))
-        path_layout.addWidget(self.path_input)
-
-        self.browse_btn = QPushButton("📁 Обзор")
-        self.browse_btn.setProperty("variant", "accent")
-        self.browse_btn.clicked.connect(self.browse_path)
-        path_layout.addWidget(self.browse_btn)
-        layout.addLayout(path_layout)
-
-        input_type_label = QLabel("Тип входа")
-        layout.addWidget(input_type_label)
-        self.input_type_combo = QComboBox()
-        self.input_type_combo.addItem("Файл", userData="file")
-        self.input_type_combo.addItem("Папка", userData="folder")
-        layout.addWidget(self.input_type_combo)
-
-        description_label = QLabel("Описание")
-        layout.addWidget(description_label)
-        self.description_input = QTextEdit()
-        self.description_input.setFixedHeight(84)
-        if macro_data:
-            self.description_input.setPlainText(macro_data.get("description", ""))
-        layout.addWidget(self.description_input)
-
-        layout.addStretch()
-
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(TOKENS.spacing.sm)
-
-        cancel_btn = QPushButton("Отмена")
-        cancel_btn.setProperty("variant", "secondary")
-        cancel_btn.clicked.connect(self.reject)
-
-        save_btn = QPushButton("💾 Сохранить")
-        save_btn.setProperty("variant", "accent")
-        save_btn.clicked.connect(self.accept)
-
-        btn_layout.addStretch()
-        btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(save_btn)
-        layout.addLayout(btn_layout)
-
-        self.setLayout(layout)
-
-        if macro_data:
-            group = macro_data.get("group")
-            if group and group in self.available_groups:
-                self.type_combo.setCurrentText(group)
-            input_type = macro_data.get("input_type")
-            if input_type:
-                index = self.input_type_combo.findData(input_type)
-                if index >= 0:
-                    self.input_type_combo.setCurrentIndex(index)
-
-    def browse_path(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Выберите файл макроса",
-            "",
-            "Все файлы (*.*)",
-        )
-        if file_path:
-            self.path_input.setText(file_path)
-            if not self.name_input.text():
-                self.name_input.setText(Path(file_path).stem)
-
-    def get_data(self) -> dict:
-        return {
-            "name": self.name_input.text(),
-            "path": self.path_input.text(),
-            "description": self.description_input.toPlainText(),
-            "group": self.type_combo.currentText(),
-            "input_type": self.input_type_combo.currentData(),
         }

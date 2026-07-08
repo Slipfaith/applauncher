@@ -17,9 +17,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "apps": [],
     "groups": ["Общее"],
     "view_mode": "grid",
-    "macros": [],
-    "macro_groups": ["Общее"],
-    "macro_view_mode": "grid",
     "notes": [],
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
@@ -44,11 +41,6 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             return value
         return default.copy()
 
-    def normalize_macro_groups(value: Any, default: list) -> list:
-        groups = normalize_groups(value, default)
-        filtered = [group for group in groups if group not in {".vbs", ".vba", ".py"}]
-        return filtered or default.copy()
-
     def normalize_tile_size(value: Any, default: tuple[int, int]) -> list[int]:
         if isinstance(value, (list, tuple)) and len(value) == 2:
             try:
@@ -65,9 +57,6 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "apps": normalize_list(data, []),
             "groups": DEFAULT_CONFIG["groups"].copy(),
             "view_mode": DEFAULT_CONFIG["view_mode"],
-            "macros": [],
-            "macro_groups": DEFAULT_CONFIG["macro_groups"].copy(),
-            "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
             "notes": [],
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
@@ -76,9 +65,6 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     apps = normalize_list(data.get("apps"), [])
     groups = normalize_groups(data.get("groups"), DEFAULT_CONFIG["groups"])
     view_mode = data.get("view_mode", DEFAULT_CONFIG["view_mode"])
-    macros = normalize_list(data.get("macros"), [])
-    macro_groups = normalize_macro_groups(data.get("macro_groups"), DEFAULT_CONFIG["macro_groups"])
-    macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
     notes = normalize_list(data.get("notes"), [])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
@@ -87,9 +73,6 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "apps": apps,
         "groups": groups,
         "view_mode": view_mode,
-        "macros": macros,
-        "macro_groups": macro_groups,
-        "macro_view_mode": macro_view_mode,
         "notes": notes,
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,

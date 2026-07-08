@@ -16,6 +16,7 @@ from PySide6.QtGui import QDrag, QFontMetrics, QIcon
 
 from ..styles import TOKENS, apply_shadow
 from ...repository import DEFAULT_GROUP
+from ...services.file_transfer import extract_drop_items, has_virtual_files
 from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 from ..tile_image.utils import load_icon_file
 
@@ -24,7 +25,17 @@ logger = logging.getLogger(__name__)
 from .clipboard_history_widget import ClipboardHistoryWidget  # noqa: E402
 from .hotkey_settings_widget import HotkeySettingsWidget  # noqa: E402
 from .notes_widget import NotesWidget  # noqa: E402
+from .toast import Toast  # noqa: E402
 from .universal_search_widget import UniversalSearchWidget  # noqa: E402
+
+
+def _mime_has_copyable_payload(mime) -> bool:
+    """True when the drag carries files copyable into a folder tile."""
+    if mime.hasFormat("application/x-applauncher-app"):
+        return False
+    if mime.hasUrls() and any(url.toLocalFile() for url in mime.urls()):
+        return True
+    return has_virtual_files(mime)
 
 
 class AppButton(QPushButton):
@@ -37,7 +48,7 @@ class AppButton(QPushButton):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
-    inputDropped = Signal(object, str)
+    copyDropRequested = Signal(object, list, list)
 
     def __init__(
         self,
@@ -57,15 +68,11 @@ class AppButton(QPushButton):
         self.default_group = default_group
         self.show_favorite = show_favorite
         self._drag_start_pos = None
-        self._accept_input_drop = bool(app_data.get("accept_input_drop"))
-        self._input_type = app_data.get("input_type")
-        self._run_state = app_data.get("run_state")
+        self._accepts_file_drop = (
+            app_data.get("type") == "folder" and not app_data.get("disabled")
+        )
         self.setProperty("role", "appTile")
-        if self._input_type:
-            self.setProperty("inputType", self._input_type)
-        if self._run_state:
-            self.setProperty("runState", self._run_state)
-        self.setAcceptDrops(self._accept_input_drop)
+        self.setAcceptDrops(self._accepts_file_drop)
 
         self.tile_size = tile_size or TOKENS.sizes.grid_button
         self.icon_size = icon_size or TOKENS.sizes.grid_icon
@@ -83,12 +90,12 @@ class AppButton(QPushButton):
                 display_label = f"🌐 {display_name}"
         elif app_type == "folder" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"📁 {display_name}"
-        macro_label = self._build_macro_label()
-        if macro_label:
-            display_label = f"{display_label}\n{macro_label}"
-        self.setToolTip(self._build_tooltip(display_name, macro_label))
+        tooltip = display_name
+        if self._accepts_file_drop:
+            tooltip = f"{display_name}\nПеретащите файл или папку сюда, чтобы скопировать"
+        self.setToolTip(tooltip)
         self._display_label = display_label
-        self._has_custom_icon = has_custom_icon and not app_data.get("is_macro")
+        self._has_custom_icon = has_custom_icon
         self._sync_text()
         if icon_path and os.path.exists(icon_path):
             if has_custom_icon:
@@ -102,11 +109,8 @@ class AppButton(QPushButton):
             else:
                 self.setIcon(QIcon(icon_path))
         if has_custom_icon:
-            if not app_data.get("is_macro"):
-                self.setProperty("iconMode", "full")
-                self.setIconSize(QSize(*self.tile_size))
-            else:
-                self.setIconSize(QSize(self.icon_size, self.icon_size))
+            self.setProperty("iconMode", "full")
+            self.setIconSize(QSize(*self.tile_size))
         else:
             self.setIconSize(QSize(self.icon_size, self.icon_size))
         # Fixed size for FlowLayout consistency
@@ -185,37 +189,12 @@ class AppButton(QPushButton):
         else:
             self.setText(self._wrap_text(self._display_label))
 
-    def _build_macro_label(self) -> str:
-        input_label = self._input_label()
-        status_label = self._status_label()
-        labels = [label for label in (input_label, status_label) if label]
-        return "\n".join(labels)
-
-    def _build_tooltip(self, title: str, macro_label: str) -> str:
-        if not macro_label:
-            return title
-        return f"{title}\n{macro_label.replace(chr(10), ' • ')}"
-
-    def _input_label(self) -> str:
-        if not self._input_type:
-            return ""
-        if self._input_type == "folder":
-            return "📁 Папка"
-        return "📄 Файл"
-
-    def _status_label(self) -> str:
-        if self._run_state == "running":
-            return "⏳ Выполняется"
-        return ""
-
-    def _input_accepts_path(self, path_value: str) -> bool:
-        if not path_value:
-            return False
-        if self._input_type == "folder":
-            return os.path.isdir(path_value)
-        if self._input_type == "file":
-            return os.path.isfile(path_value)
-        return os.path.exists(path_value)
+    def _set_drop_active(self, active: bool) -> None:
+        if self.property("dropActive") == active:
+            return
+        self.setProperty("dropActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -284,33 +263,31 @@ class AppButton(QPushButton):
         drag.exec(Qt.MoveAction)
 
     def dragEnterEvent(self, event):
-        if self._accept_input_drop and event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if self._input_accepts_path(url.toLocalFile()):
-                    event.acceptProposedAction()
-                    return
+        if self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData()):
+            self._set_drop_active(True)
+            event.acceptProposedAction()
+            return
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
-        if self._accept_input_drop and event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if self._input_accepts_path(url.toLocalFile()):
-                    event.acceptProposedAction()
-                    return
+        if self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData()):
+            event.acceptProposedAction()
+            return
         super().dragMoveEvent(event)
 
+    def dragLeaveEvent(self, event):
+        self._set_drop_active(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event):
-        if not (self._accept_input_drop and event.mimeData().hasUrls()):
+        self._set_drop_active(False)
+        if not (self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData())):
             super().dropEvent(event)
             return
-        accepted = False
-        for url in event.mimeData().urls():
-            path_value = url.toLocalFile()
-            if self._input_accepts_path(path_value):
-                self.inputDropped.emit(self.app_data, path_value)
-                accepted = True
-        if accepted:
+        items, warnings = extract_drop_items(event.mimeData())
+        if items or warnings:
             event.acceptProposedAction()
+            self.copyDropRequested.emit(self.app_data, items, warnings)
         else:
             super().dropEvent(event)
 
@@ -325,7 +302,7 @@ class AppListItem(QWidget):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
-    inputDropped = Signal(object, str)
+    copyDropRequested = Signal(object, list, list)
 
     def __init__(
         self,
@@ -344,15 +321,11 @@ class AppListItem(QWidget):
         self.show_favorite = show_favorite
         self._drag_start_pos = None
         self._dragging = False
-        self._accept_input_drop = bool(app_data.get("accept_input_drop"))
-        self._input_type = app_data.get("input_type")
-        self._run_state = app_data.get("run_state")
+        self._accepts_file_drop = (
+            app_data.get("type") == "folder" and not app_data.get("disabled")
+        )
         self.setProperty("role", "listItem")
-        if self._input_type:
-            self.setProperty("inputType", self._input_type)
-        if self._run_state:
-            self.setProperty("runState", self._run_state)
-        self.setAcceptDrops(self._accept_input_drop)
+        self.setAcceptDrops(self._accepts_file_drop)
 
         from PySide6.QtWidgets import QHBoxLayout
 
@@ -393,12 +366,6 @@ class AppListItem(QWidget):
             name_label = QLabel(f"{prefix}{app_data['name']}")
         name_label.setProperty("role", "listTitle")
         text_layout.addWidget(name_label)
-
-        meta_label = self._build_meta_label()
-        if meta_label:
-            meta_widget = QLabel(meta_label)
-            meta_widget.setProperty("role", "listMeta")
-            text_layout.addWidget(meta_widget)
 
         display_path = app_data.get("path", "")
         if app_type == "url":
@@ -494,55 +461,39 @@ class AppListItem(QWidget):
         elif action in move_action_map:
             self.moveRequested.emit(self.app_data, move_action_map[action])
 
-    def _build_meta_label(self) -> str:
-        if not self._input_type and not self._run_state:
-            return ""
-        parts = []
-        if self._input_type == "folder":
-            parts.append("📁 Папка")
-        elif self._input_type == "file":
-            parts.append("📄 Файл")
-        if self._run_state == "running":
-            parts.append("⏳ Выполняется")
-        return " • ".join(parts)
-
-    def _input_accepts_path(self, path_value: str) -> bool:
-        if not path_value:
-            return False
-        if self._input_type == "folder":
-            return os.path.isdir(path_value)
-        if self._input_type == "file":
-            return os.path.isfile(path_value)
-        return os.path.exists(path_value)
+    def _set_drop_active(self, active: bool) -> None:
+        if self.property("dropActive") == active:
+            return
+        self.setProperty("dropActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def dragEnterEvent(self, event):
-        if self._accept_input_drop and event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if self._input_accepts_path(url.toLocalFile()):
-                    event.acceptProposedAction()
-                    return
+        if self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData()):
+            self._set_drop_active(True)
+            event.acceptProposedAction()
+            return
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
-        if self._accept_input_drop and event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if self._input_accepts_path(url.toLocalFile()):
-                    event.acceptProposedAction()
-                    return
+        if self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData()):
+            event.acceptProposedAction()
+            return
         super().dragMoveEvent(event)
 
+    def dragLeaveEvent(self, event):
+        self._set_drop_active(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event):
-        if not (self._accept_input_drop and event.mimeData().hasUrls()):
+        self._set_drop_active(False)
+        if not (self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData())):
             super().dropEvent(event)
             return
-        accepted = False
-        for url in event.mimeData().urls():
-            path_value = url.toLocalFile()
-            if self._input_accepts_path(path_value):
-                self.inputDropped.emit(self.app_data, path_value)
-                accepted = True
-        if accepted:
+        items, warnings = extract_drop_items(event.mimeData())
+        if items or warnings:
             event.acceptProposedAction()
+            self.copyDropRequested.emit(self.app_data, items, warnings)
         else:
             super().dropEvent(event)
 

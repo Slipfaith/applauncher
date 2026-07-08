@@ -87,8 +87,7 @@ class UniversalSearchWidget(QDialog):
             self.result_list.setCurrentRow(0)
 
     def _format_label(self, result: SearchResult) -> str:
-        type_label = "Приложение" if result.item_type == "app" else "Макрос"
-        return f"{result.name} — {type_label}"
+        return result.name
 
     def _resolve_icon(self, result: SearchResult) -> QIcon:
         icon_path = result.payload.get("icon_path", "")

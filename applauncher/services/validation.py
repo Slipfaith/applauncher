@@ -200,41 +200,6 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
     return data, None
 
 
-def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
-    if not data:
-        return None, None
-    name = (data.get("name") or "").strip()
-    if not name:
-        return None, "Укажите название макроса"
-    path_value = (data.get("path") or "").strip()
-    if not path_value:
-        return None, "Укажите путь к файлу макроса"
-    if not os.path.exists(path_value):
-        return None, f"Файл не найден:\n{path_value}"
-    suffix = Path(path_value).suffix.lower()
-    selected_group = (data.get("group") or "").strip()
-    group = selected_group or DEFAULT_GROUP
-    description = (data.get("description") or "").strip()
-    input_type = (data.get("input_type") or "").strip().lower()
-    if input_type not in {"file", "folder"}:
-        input_type = "file"
-    data["name"] = name
-    data["path"] = path_value
-    data["description"] = description
-    data["type"] = suffix.lstrip(".") or "file"
-    data["group"] = group
-    data["input_type"] = input_type
-    data.setdefault("usage_count", 0)
-    data.setdefault("favorite", False)
-    data.setdefault("args", [])
-    data.setdefault("source", "manual")
-    data.setdefault("disabled", False)
-    data.setdefault("disabled_reason", "")
-    data.setdefault("invalid", False)
-    data.setdefault("invalid_reason", "")
-    return data, None
-
-
 def soft_validate_app_data(data: dict | None) -> dict | None:
     if not data:
         return None
@@ -263,35 +228,6 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
     fallback.setdefault("source", "manual")
     if fallback.get("type") == "url":
         fallback.setdefault("raw_path", fallback.get("raw_path") or path_value)
-    fallback["invalid"] = True
-    fallback["invalid_reason"] = error or "Некорректные данные"
-    fallback["disabled"] = True
-    fallback["disabled_reason"] = fallback["invalid_reason"]
-    return fallback
-
-
-def soft_validate_macro_data(data: dict | None) -> dict | None:
-    if not data:
-        return None
-    validated, error = validate_macro_data(dict(data))
-    if not error and validated:
-        validated["invalid"] = False
-        validated["invalid_reason"] = ""
-        return validated
-    fallback = dict(data)
-    name = (fallback.get("name") or "").strip()
-    path_value = (fallback.get("path") or "").strip()
-    if not name:
-        name = path_value or "Без названия"
-    fallback["name"] = name
-    fallback["path"] = path_value
-    fallback.setdefault("description", (fallback.get("description") or "").strip())
-    fallback.setdefault("type", (fallback.get("type") or "").strip())
-    fallback.setdefault("group", (fallback.get("group") or DEFAULT_GROUP))
-    fallback.setdefault("input_type", (fallback.get("input_type") or "file").strip().lower() or "file")
-    fallback.setdefault("usage_count", 0)
-    fallback.setdefault("favorite", False)
-    fallback.setdefault("source", "manual")
     fallback["invalid"] = True
     fallback["invalid_reason"] = error or "Некорректные данные"
     fallback["disabled"] = True

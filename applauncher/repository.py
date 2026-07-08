@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Iterable, List, Optional
 
 DEFAULT_GROUP = "Общее"
-DEFAULT_MACRO_GROUPS = [DEFAULT_GROUP]
 
 
 class AppRepository:

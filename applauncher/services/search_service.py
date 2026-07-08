@@ -1,4 +1,4 @@
-"""Universal search service for apps and macros."""
+"""Universal search service for launcher items."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,17 +24,14 @@ class SearchResult:
 class SearchService:
     """Searches across repositories with fuzzy matching."""
 
-    def __init__(self, app_repository: AppRepository, macro_repository: AppRepository) -> None:
+    def __init__(self, app_repository: AppRepository) -> None:
         self.app_repository = app_repository
-        self.macro_repository = macro_repository
 
     def search(self, query: str) -> list[SearchResult]:
         query = (query or "").strip().lower()
         if not query:
             return []
-        results: list[SearchResult] = []
-        results.extend(self._search_repository(query, self.app_repository.apps, "app"))
-        results.extend(self._search_repository(query, self.macro_repository.apps, "macro"))
+        results = self._search_repository(query, self.app_repository.apps, "app")
         return sorted(
             results,
             key=lambda item: (item.sort_score, item.match_score, item.name.lower()),
