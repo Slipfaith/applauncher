@@ -42,6 +42,7 @@ pip-wheel-metadata/
 __nuitka_build__/
 *.exe
 *.app
+*.test/
 
 # =========================
 # Tools caches
@@ -64,6 +65,7 @@ dmypy.json
 # =========================
 .vscode/
 .idea/
+.claude/
 *.code-workspace
 *.sublime-project
 *.sublime-workspace
@@ -120,9 +122,15 @@ temp/
 *.db
 # logs
 *.log
+BnetLog.txt
+*.ini
 
 # local configs
 launcher_config.json
 
 # generated / assets
 *.png
+
+# markdown docs
+*.md
+!README.md

@@ -31,6 +31,19 @@ def normalize_url(url: str) -> str:
     return url
 
 
+def is_unc_path(path_value: str) -> bool:
+    """Return True for UNC paths like \\\\server\\share\\folder."""
+    value = (path_value or "").strip()
+    if not value:
+        return False
+    normalized = value.replace("/", "\\")
+    if not normalized.startswith("\\\\"):
+        return False
+    tail = normalized[2:]
+    parts = [part for part in tail.split("\\") if part]
+    return len(parts) >= 2
+
+
 def read_url_shortcut(file_path: str) -> str:
     for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "cp1251", "latin-1"):
         try:
@@ -177,7 +190,7 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
         data["raw_path"] = ""
         if not path_value:
             return None, "Укажите путь к папке"
-        if not os.path.isdir(path_value):
+        if not os.path.isdir(path_value) and not is_unc_path(path_value):
             return None, f"Папка не найдена:\n{path_value}"
         data["type"] = "folder"
     else:
@@ -188,8 +201,10 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
             return None, f"Файл не найден:\n{path_value}"
         suffix = Path(path_value).suffix.lower()
         data["type"] = "lnk" if suffix == ".lnk" else "exe"
-    data.setdefault("group", DEFAULT_GROUP)
+    group = (data.get("group") or "").strip()
+    data["group"] = group or DEFAULT_GROUP
     data.setdefault("usage_count", 0)
+    data.setdefault("local_hotkey", "")
     data.setdefault("favorite", False)
     data.setdefault("args", [])
     data.setdefault("source", "manual")
@@ -224,6 +239,7 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
     fallback.setdefault("type", "exe")
     fallback.setdefault("group", DEFAULT_GROUP)
     fallback.setdefault("usage_count", 0)
+    fallback.setdefault("local_hotkey", "")
     fallback.setdefault("favorite", False)
     fallback.setdefault("source", "manual")
     if fallback.get("type") == "url":

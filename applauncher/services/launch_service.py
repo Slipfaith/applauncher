@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 
-from .validation import normalize_url
+from .validation import is_unc_path, normalize_url
 
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,20 @@ logger = logging.getLogger(__name__)
 
 class LaunchService:
     """Encapsulates app launching logic without UI dependencies."""
+
+    def _open_path(self, path_value: str | Path) -> None:
+        target = str(path_value)
+        if hasattr(os, "startfile"):
+            os.startfile(target)
+            return
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", target])
+            return
+        opener = shutil.which("xdg-open")
+        if opener:
+            subprocess.Popen([opener, target])
+            return
+        raise OSError("No default opener available on this platform")
 
     def launch(self, app_data: dict) -> tuple[bool, str | None]:
         if app_data.get("disabled"):
@@ -39,10 +55,11 @@ class LaunchService:
             folder = Path(app_data["path"])
         else:
             folder = Path(app_data["path"]).parent
-        if not folder.exists():
+        folder_value = str(folder)
+        if not folder.exists() and not is_unc_path(folder_value):
             return False, f"Папка не найдена:\n{folder}"
         try:
-            os.startfile(folder)
+            self._open_path(folder)
             return True, None
         except OSError as err:  # pragma: no cover - system dependent
             return False, f"Не удалось открыть папку:\n{err}"
@@ -74,7 +91,10 @@ class LaunchService:
             if args:
                 subprocess.Popen([path_value, *args])
             else:
-                os.startfile(path_value)
+                if hasattr(os, "startfile"):
+                    os.startfile(path_value)
+                else:
+                    subprocess.Popen([path_value])
             logger.info("Запуск приложения %s", path_value)
             return True, None
         except OSError as err:  # pragma: no cover - system dependent
@@ -87,7 +107,7 @@ class LaunchService:
             logger.warning("Файл не найден: %s", path_value)
             return False, f"Файл не найден:\n{path_value}"
         try:
-            os.startfile(path_value)
+            self._open_path(path_value)
             logger.info("Запуск ярлыка %s", path_value)
             return True, None
         except OSError as err:  # pragma: no cover - system dependent
@@ -96,11 +116,11 @@ class LaunchService:
 
     def _launch_folder(self, app_data: dict) -> tuple[bool, str | None]:
         path_value = app_data.get("path", "")
-        if not os.path.isdir(path_value):
+        if not os.path.isdir(path_value) and not is_unc_path(path_value):
             logger.warning("Папка не найдена: %s", path_value)
             return False, f"Папка не найдена:\n{path_value}"
         try:
-            os.startfile(path_value)
+            self._open_path(path_value)
             logger.info("Открыта папка %s", path_value)
             return True, None
         except OSError as err:  # pragma: no cover - system dependent

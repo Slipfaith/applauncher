@@ -115,6 +115,7 @@ class AppRepository:
                     if k
                     in {
                         "usage_count",
+                        "local_hotkey",
                         "icon_path",
                         "favorite",
                         "args",
@@ -137,6 +138,7 @@ class AppRepository:
         prepared.setdefault("usage_count", 0)
         prepared.setdefault("group", self.default_group)
         prepared.setdefault("type", "exe")
+        prepared.setdefault("local_hotkey", "")
         prepared.setdefault("favorite", False)
         prepared.setdefault("args", [])
         prepared.setdefault("custom_icon", False)
@@ -152,6 +154,9 @@ class AppRepository:
         prepared.setdefault("invalid", False)
         prepared.setdefault("invalid_reason", "")
         return prepared
+
+    def get_all_items(self) -> list[dict]:
+        return list(self.apps)
 
     def _resolve_search_path(self, app: dict) -> str:
         if app.get("type") == "url":
