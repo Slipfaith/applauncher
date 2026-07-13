@@ -4,6 +4,7 @@ import logging
 
 from PySide6.QtWidgets import (
     QApplication,
+    QGraphicsDropShadowEffect,
     QLabel,
     QPushButton,
     QWidget,
@@ -11,12 +12,13 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QMimeData
-from PySide6.QtGui import QDrag, QFontMetrics, QIcon
+from PySide6.QtCore import Qt, QSize, QTimer, Signal, QMimeData, QVariantAnimation, QEasingCurve
+from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QColor
 
-from ..styles import TOKENS, apply_shadow
+from ..styles import TOKENS
 from ...repository import DEFAULT_GROUP
 from ...services.file_transfer import extract_drop_items, has_virtual_files
+from ...services.local_hotkeys import format_hotkey_for_display
 from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
 from ..tile_image.utils import load_icon_file
 
@@ -48,6 +50,8 @@ class AppButton(QPushButton):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
+    assignHotkeyRequested = Signal(object)
+    clearHotkeyRequested = Signal(object)
     copyDropRequested = Signal(object, list, list)
 
     def __init__(
@@ -90,10 +94,13 @@ class AppButton(QPushButton):
                 display_label = f"🌐 {display_name}"
         elif app_type == "folder" and not (icon_path and os.path.exists(icon_path)):
             display_label = f"📁 {display_name}"
-        tooltip = display_name
+        local_hotkey = (app_data.get("local_hotkey") or "").strip()
+        tooltip_lines = [display_name]
+        if local_hotkey:
+            tooltip_lines.append(f"Горячая клавиша: {local_hotkey}")
         if self._accepts_file_drop:
-            tooltip = f"{display_name}\nПеретащите файл или папку сюда, чтобы скопировать"
-        self.setToolTip(tooltip)
+            tooltip_lines.append("Перетащите файл или папку сюда, чтобы скопировать")
+        self.setToolTip("\n".join(tooltip_lines))
         self._display_label = display_label
         self._has_custom_icon = has_custom_icon
         self._sync_text()
@@ -110,16 +117,116 @@ class AppButton(QPushButton):
                 self.setIcon(QIcon(icon_path))
         if has_custom_icon:
             self.setProperty("iconMode", "full")
-            self.setIconSize(QSize(*self.tile_size))
-        else:
-            self.setIconSize(QSize(self.icon_size, self.icon_size))
+        self._base_icon_size = self._resolve_base_icon_size()
+        self._pressed_icon_size = self._shrink_icon_size(self._base_icon_size)
+        self.setIconSize(self._base_icon_size)
         # Fixed size for FlowLayout consistency
         self.setFixedSize(*self.tile_size)
-        apply_shadow(self, TOKENS.shadows.raised)
+
+        shadow = TOKENS.shadows.raised
+        self._shadow_base_blur = float(shadow.blur)
+        self._shadow_base_x = float(shadow.offset_x)
+        self._shadow_base_y = float(shadow.offset_y)
+        self._shadow_base_color = QColor(shadow.color)
+
+        self._shadow_effect = QGraphicsDropShadowEffect(self)
+        self._shadow_effect.setBlurRadius(shadow.blur)
+        self._shadow_effect.setXOffset(shadow.offset_x)
+        self._shadow_effect.setYOffset(shadow.offset_y)
+        self._shadow_effect.setColor(self._shadow_base_color)
+        self.setGraphicsEffect(self._shadow_effect)
+
+        self._press_progress = 0.0
+        self._press_animation = QVariantAnimation(self)
+        self._press_animation.setDuration(90)
+        self._press_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._press_animation.setStartValue(0.0)
+        self._press_animation.setEndValue(0.0)
+        self._press_animation.valueChanged.connect(self._apply_press_progress)
 
         self.clicked.connect(lambda: self.activated.emit(self.app_data))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+
+        self._copy_btn = None
+        if app_type in {"url", "folder"}:
+            btn = QPushButton("📋", self)
+            btn.setFixedSize(22, 22)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip("Скопировать ссылку" if app_type == "url" else "Скопировать путь")
+            btn.setStyleSheet(
+                "QPushButton { background: rgba(0,0,0,0.05); border: none;"
+                " border-radius: 4px; font-size: 11px; padding: 0; }"
+                "QPushButton:hover { background: rgba(0,0,0,0.15); }"
+            )
+            btn.move(self.width() - 24, 2)
+            btn.clicked.connect(self._on_copy_clicked)
+            self._copy_btn = btn
+            self._copy_btn_default_style = btn.styleSheet()
+
+    def _resolve_base_icon_size(self) -> QSize:
+        if self._has_custom_icon:
+            return QSize(*self.tile_size)
+        return QSize(self.icon_size, self.icon_size)
+
+    @staticmethod
+    def _shrink_icon_size(size: QSize) -> QSize:
+        return QSize(
+            max(16, int(round(size.width() * 0.94))),
+            max(16, int(round(size.height() * 0.94))),
+        )
+
+    def _on_copy_clicked(self):
+        self.copyLinkRequested.emit(self.app_data)
+        btn = self._copy_btn
+        if btn is None:
+            return
+        btn.setText("✓")
+        btn.setStyleSheet(
+            "QPushButton { background: rgba(34,197,94,0.25); border: none;"
+            " border-radius: 4px; font-size: 12px; padding: 0;"
+            " color: #16a34a; font-weight: bold; }"
+        )
+        QTimer.singleShot(800, self._reset_copy_btn)
+
+    def _reset_copy_btn(self):
+        btn = self._copy_btn
+        if btn is None:
+            return
+        btn.setText("\U0001f4cb")
+        btn.setStyleSheet(self._copy_btn_default_style)
+
+    def _apply_press_progress(self, value):
+        progress = max(0.0, min(1.0, float(value)))
+        self._press_progress = progress
+
+        icon_w = int(round(
+            self._base_icon_size.width()
+            + (self._pressed_icon_size.width() - self._base_icon_size.width()) * progress
+        ))
+        icon_h = int(round(
+            self._base_icon_size.height()
+            + (self._pressed_icon_size.height() - self._base_icon_size.height()) * progress
+        ))
+        self.setIconSize(QSize(max(1, icon_w), max(1, icon_h)))
+
+        blur = max(0.0, self._shadow_base_blur * (1.0 - 0.70 * progress))
+        x_offset = self._shadow_base_x * (1.0 - progress)
+        y_offset = self._shadow_base_y * (1.0 - progress)
+        color = QColor(self._shadow_base_color)
+        color.setAlpha(max(0, int(round(self._shadow_base_color.alpha() * (1.0 - 0.85 * progress)))))
+        self._shadow_effect.setBlurRadius(blur)
+        self._shadow_effect.setXOffset(x_offset)
+        self._shadow_effect.setYOffset(y_offset)
+        self._shadow_effect.setColor(color)
+
+    def _animate_press(self, target: float, duration_ms: int) -> None:
+        target = max(0.0, min(1.0, target))
+        self._press_animation.stop()
+        self._press_animation.setDuration(duration_ms)
+        self._press_animation.setStartValue(self._press_progress)
+        self._press_animation.setEndValue(target)
+        self._press_animation.start()
 
     def set_available_groups(self, groups: list[str]) -> None:
         self.available_groups = list(groups)
@@ -176,11 +283,12 @@ class AppButton(QPushButton):
     def set_tile_size(self, tile_size: tuple[int, int], icon_size: int) -> None:
         self.tile_size = tile_size
         self.icon_size = icon_size
-        if self._has_custom_icon:
-            self.setIconSize(QSize(*self.tile_size))
-        else:
-            self.setIconSize(QSize(self.icon_size, self.icon_size))
+        self._base_icon_size = self._resolve_base_icon_size()
+        self._pressed_icon_size = self._shrink_icon_size(self._base_icon_size)
+        self.setIconSize(self._base_icon_size)
         self.setFixedSize(*self.tile_size)
+        if self._copy_btn is not None:
+            self._copy_btn.move(self.width() - 24, 2)
         self._sync_text()
 
     def _sync_text(self) -> None:
@@ -200,6 +308,14 @@ class AppButton(QPushButton):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        current_hotkey = (self.app_data.get("local_hotkey") or "").strip()
+        if current_hotkey:
+            hotkey_action = menu.addAction(f"⌨️ Изменить горячую клавишу ({current_hotkey})")
+        else:
+            hotkey_action = menu.addAction("⌨️ Назначить горячую клавишу")
+        clear_hotkey_action = None
+        if current_hotkey:
+            clear_hotkey_action = menu.addAction("🧹 Удалить горячую клавишу")
         copy_link_action = None
         if self.app_data.get("type") == "url":
             copy_link_action = menu.addAction("🔗 Скопировать ссылку")
@@ -230,6 +346,10 @@ class AppButton(QPushButton):
             return
         if action == edit_action:
             self.editRequested.emit(self.app_data)
+        elif action == hotkey_action:
+            self.assignHotkeyRequested.emit(self.app_data)
+        elif clear_hotkey_action and action == clear_hotkey_action:
+            self.clearHotkeyRequested.emit(self.app_data)
         elif action == delete_action:
             self.deleteRequested.emit(self.app_data)
         elif action == trash_action:
@@ -246,6 +366,7 @@ class AppButton(QPushButton):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_start_pos = event.position().toPoint()
+            self._animate_press(1.0, 80)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -255,12 +376,25 @@ class AppButton(QPushButton):
         if (event.position().toPoint() - self._drag_start_pos).manhattanLength() < QApplication.startDragDistance():
             super().mouseMoveEvent(event)
             return
+        self._animate_press(0.0, 90)
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData("application/x-applauncher-app", self.app_data["path"].encode("utf-8"))
         drag.setMimeData(mime)
         drag.setPixmap(self.grab())
         drag.exec(Qt.MoveAction)
+        self._drag_start_pos = None
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._animate_press(0.0, 120)
+            self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        if not (QApplication.mouseButtons() & Qt.LeftButton):
+            self._animate_press(0.0, 120)
+        super().leaveEvent(event)
 
     def dragEnterEvent(self, event):
         if self._accepts_file_drop and _mime_has_copyable_payload(event.mimeData()):
@@ -302,6 +436,8 @@ class AppListItem(QWidget):
     favoriteToggled = Signal(object)
     moveRequested = Signal(object, str)
     copyLinkRequested = Signal(object)
+    assignHotkeyRequested = Signal(object)
+    clearHotkeyRequested = Signal(object)
     copyDropRequested = Signal(object, list, list)
 
     def __init__(
@@ -326,6 +462,13 @@ class AppListItem(QWidget):
         )
         self.setProperty("role", "listItem")
         self.setAcceptDrops(self._accepts_file_drop)
+        local_hotkey = (app_data.get("local_hotkey") or "").strip()
+        tooltip_lines = [app_data.get("name", "")]
+        if local_hotkey:
+            tooltip_lines.append(f"Горячая клавиша: {local_hotkey}")
+        if self._accepts_file_drop:
+            tooltip_lines.append("Перетащите файл или папку сюда, чтобы скопировать")
+        self.setToolTip("\n".join(line for line in tooltip_lines if line))
 
         from PySide6.QtWidgets import QHBoxLayout
 
@@ -418,6 +561,14 @@ class AppListItem(QWidget):
         menu = QMenu(self)
         edit_action = menu.addAction("✏️ Редактировать")
         open_folder_action = menu.addAction("📂 Открыть расположение")
+        current_hotkey = (self.app_data.get("local_hotkey") or "").strip()
+        if current_hotkey:
+            hotkey_action = menu.addAction(f"⌨️ Изменить горячую клавишу ({current_hotkey})")
+        else:
+            hotkey_action = menu.addAction("⌨️ Назначить горячую клавишу")
+        clear_hotkey_action = None
+        if current_hotkey:
+            clear_hotkey_action = menu.addAction("🧹 Удалить горячую клавишу")
         copy_link_action = None
         if self.app_data.get("type") == "url":
             copy_link_action = menu.addAction("🔗 Скопировать ссылку")
@@ -448,6 +599,10 @@ class AppListItem(QWidget):
             return
         if action == edit_action:
             self.editRequested.emit(self.app_data)
+        elif action == hotkey_action:
+            self.assignHotkeyRequested.emit(self.app_data)
+        elif clear_hotkey_action and action == clear_hotkey_action:
+            self.clearHotkeyRequested.emit(self.app_data)
         elif action == delete_action:
             self.deleteRequested.emit(self.app_data)
         elif action == trash_action:
@@ -496,6 +651,102 @@ class AppListItem(QWidget):
             self.copyDropRequested.emit(self.app_data, items, warnings)
         else:
             super().dropEvent(event)
+
+
+class HotkeySlotWidget(QWidget):
+    """Single slot in the hotkey HUD: app icon with hotkey shown in tooltip."""
+
+    clicked = Signal(dict)
+
+    def __init__(self, app_data: dict, parent=None):
+        super().__init__(parent)
+        self.app_data = app_data
+        self.setCursor(Qt.PointingHandCursor)
+        hotkey_text = format_hotkey_for_display(app_data.get("local_hotkey", ""))
+        self.setToolTip(f"{app_data.get('name', '')}\n{hotkey_text}")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+
+        icon_label = QLabel()
+        icon_label.setFixedSize(34, 34)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_path = app_data.get("icon_path", "")
+        if icon_path and os.path.exists(icon_path):
+            pixmap = load_icon_file(icon_path)
+            if not pixmap.isNull():
+                if app_data.get("custom_icon"):
+                    frame = resolve_icon_frame(app_data)
+                    pixmap = render_framed_pixmap(pixmap, QSize(34, 34), frame)
+                else:
+                    pixmap = pixmap.scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                icon_label.setPixmap(pixmap)
+        else:
+            app_type = app_data.get("type", "exe")
+            if app_type == "url":
+                icon_label.setText("🌐")
+            elif app_type == "folder":
+                icon_label.setText("📁")
+            else:
+                icon_label.setText("🔲")
+        layout.addWidget(icon_label, 0, Qt.AlignHCenter)
+
+        self.setLayout(layout)
+        self.setFixedSize(42, 42)
+        self._set_hovered(False)
+
+    def _set_hovered(self, hovered: bool) -> None:
+        bg = "rgba(255,255,255,25)" if hovered else "transparent"
+        self.setStyleSheet(f"HotkeySlotWidget {{ background: {bg}; border-radius: 6px; }}")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.app_data)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self._set_hovered(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._set_hovered(False)
+        super().leaveEvent(event)
+
+
+class HotkeyHudWidget(QWidget):
+    """Strip of HotkeySlotWidgets for apps that have local_hotkey assigned."""
+
+    slot_clicked = Signal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import QHBoxLayout
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setLayout(layout)
+        self._slots: list[HotkeySlotWidget] = []
+        self.setVisible(False)
+
+    def update_slots(self, items: list[dict]) -> None:
+        layout = self.layout()
+        for slot in self._slots:
+            layout.removeWidget(slot)
+            slot.deleteLater()
+        self._slots.clear()
+
+        hotkey_items = [item for item in items if (item.get("local_hotkey") or "").strip()]
+        for item in hotkey_items:
+            slot = HotkeySlotWidget(item, self)
+            slot.clicked.connect(self.slot_clicked)
+            layout.addWidget(slot)
+            self._slots.append(slot)
+
+        self.setVisible(bool(hotkey_items))
 
 
 class TitleBar(QWidget):

@@ -25,6 +25,7 @@ class LauncherService:
         self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
         self.tile_size = tuple(DEFAULT_CONFIG["tile_size"])
+        self.window_size: tuple[int, int] | None = None
 
     @property
     def version(self) -> int:
@@ -53,6 +54,15 @@ class LauncherService:
         self.global_hotkey = data.get("global_hotkey", self.global_hotkey)
         self.window_opacity = data.get("window_opacity", self.window_opacity)
         self.tile_size = tuple(data.get("tile_size", self.tile_size))
+        loaded_window_size = data.get("window_size")
+        if (
+            isinstance(loaded_window_size, (list, tuple))
+            and len(loaded_window_size) == 2
+            and all(isinstance(value, int) and value > 0 for value in loaded_window_size)
+        ):
+            self.window_size = (loaded_window_size[0], loaded_window_size[1])
+        else:
+            self.window_size = None
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
             if group_name not in self.groups:
@@ -105,6 +115,7 @@ class LauncherService:
             "global_hotkey": self.global_hotkey,
             "window_opacity": self.window_opacity,
             "tile_size": list(self.tile_size),
+            "window_size": list(self.window_size) if self.window_size else None,
         }
 
     def persist_config(self) -> Optional[str]:

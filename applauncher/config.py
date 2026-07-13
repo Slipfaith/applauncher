@@ -12,6 +12,7 @@ from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 APP_NAME = "AppLauncher"
+PORTABLE_MARKER = "portable.txt"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "apps": [],
@@ -21,6 +22,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
     "tile_size": [120, 96],
+    "window_size": None,
 }
 
 
@@ -52,6 +54,18 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
                 return [width, height]
         return list(default)
 
+    def normalize_window_size(value: Any) -> list[int] | None:
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            return None
+        try:
+            width = int(value[0])
+            height = int(value[1])
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return [width, height]
+
     if not isinstance(data, dict):
         return {
             "apps": normalize_list(data, []),
@@ -61,6 +75,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
             "tile_size": DEFAULT_CONFIG["tile_size"].copy(),
+            "window_size": None,
         }
     apps = normalize_list(data.get("apps"), [])
     groups = normalize_groups(data.get("groups"), DEFAULT_CONFIG["groups"])
@@ -69,6 +84,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
     tile_size = normalize_tile_size(data.get("tile_size"), tuple(DEFAULT_CONFIG["tile_size"]))
+    window_size = normalize_window_size(data.get("window_size"))
     return {
         "apps": apps,
         "groups": groups,
@@ -77,6 +93,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,
         "tile_size": tile_size,
+        "window_size": window_size,
     }
 
 
@@ -115,6 +132,10 @@ def load_config(path: str) -> Dict[str, Any]:
 
 def resolve_config_path(filename: str = "launcher_config.json") -> str:
     """Resolve a per-user configuration path for the launcher."""
+    portable_dir = _resolve_portable_dir()
+    if portable_dir is not None:
+        return str(portable_dir / filename)
+
     appdata = os.environ.get("APPDATA")
     if appdata:
         base_dir = Path(appdata)
@@ -131,6 +152,12 @@ def resolve_config_path(filename: str = "launcher_config.json") -> str:
 
 def resolve_icons_cache_dir(folder_name: str = "launcher_icons") -> str:
     """Resolve a per-user cache directory for extracted icons."""
+    portable_dir = _resolve_portable_dir()
+    if portable_dir is not None:
+        cache_dir = portable_dir / folder_name
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return str(cache_dir)
+
     appdata = os.environ.get("APPDATA")
     if appdata:
         base_dir = Path(appdata)
@@ -152,6 +179,33 @@ def resolve_app_icon_path(filename: str = "sliplaun.ico") -> str:
     else:
         base_dir = Path(__file__).resolve().parent.parent
     return str(base_dir / filename)
+
+
+def _resolve_portable_dir() -> Path | None:
+    """Return portable data directory when marker exists in runtime folder."""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent)
+    try:
+        candidates.append(Path.cwd().resolve())
+    except OSError:
+        pass
+
+    for candidate in candidates:
+        marker = candidate / PORTABLE_MARKER
+        if not marker.exists():
+            continue
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe_file = candidate / f".{APP_NAME.lower()}_portable_write_check.tmp"
+            with open(probe_file, "w", encoding="utf-8") as handle:
+                handle.write("ok")
+            probe_file.unlink(missing_ok=True)
+            return candidate
+        except OSError as err:  # pragma: no cover - filesystem dependent
+            logger.warning("Portable mode requested but directory is not writable: %s", err)
+            continue
+    return None
 
 
 def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None:
