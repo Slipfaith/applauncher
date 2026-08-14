@@ -28,6 +28,7 @@ class LauncherService:
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
         self.window_size: tuple[int, int] | None = None
         self.notes: list[dict] = []
+        self.clipboard_history: list[dict] = []
 
     @property
     def version(self) -> int:
@@ -69,6 +70,7 @@ class LauncherService:
         else:
             self.window_size = None
         self.notes = self._normalize_loaded_notes(data.get("notes", []))
+        self.clipboard_history = data.get("clipboard_history", [])
         for app in self.repository.apps:
             group_name = app.get("group", DEFAULT_GROUP)
             if group_name not in self.groups:
@@ -166,6 +168,7 @@ class LauncherService:
             "window_opacity": self.window_opacity,
             "window_size": list(self.window_size) if self.window_size else None,
             "notes": self.notes,
+            "clipboard_history": self.clipboard_history,
         }
 
     def persist_config(self) -> Optional[str]:
@@ -189,6 +192,7 @@ class LauncherService:
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
         self.window_size = None
         self.notes = []
+        self.clipboard_history = []
         return self.persist_config()
 
     def ensure_group(self, group: str) -> None:

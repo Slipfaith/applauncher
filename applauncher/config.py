@@ -27,6 +27,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "window_opacity": 0.75,
     "window_size": None,
     "notes": [],
+    "clipboard_history": [],
 }
 
 
@@ -71,6 +72,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
             "window_size": None,
             "notes": [],
+            "clipboard_history": [],
         }
     apps = normalize_list(data.get("apps"), [])
     groups = normalize_groups(data.get("groups"), DEFAULT_CONFIG["groups"])
@@ -82,6 +84,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
     window_size = normalize_window_size(data.get("window_size"))
     notes = normalize_list(data.get("notes"), [])
+    clipboard_history = normalize_list(data.get("clipboard_history"), [])
     return {
         "apps": apps,
         "groups": groups,
@@ -93,6 +96,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "window_opacity": window_opacity,
         "window_size": window_size,
         "notes": notes,
+        "clipboard_history": clipboard_history,
     }
 
 
