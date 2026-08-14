@@ -192,6 +192,15 @@ class AppLauncher(QMainWindow):
         container = QWidget()
         container.setObjectName("centralContainer")
         self.setCentralWidget(container)
+        window_surface = QWidget(container)
+        window_surface.setObjectName("windowSurface")
+        surface_layout = QVBoxLayout(container)
+        shadow_margin = TOKENS.spacing.lg
+        surface_layout.setContentsMargins(
+            shadow_margin, shadow_margin, shadow_margin, shadow_margin
+        )
+        surface_layout.addWidget(window_surface)
+        apply_shadow(window_surface, TOKENS.shadows.floating)
         self._resize_border = 8
         app_instance = QApplication.instance()
         if app_instance is not None:
@@ -207,7 +216,7 @@ class AppLauncher(QMainWindow):
             TOKENS.spacing.none,
         )
         main_layout.setSpacing(TOKENS.spacing.none)
-        container.setLayout(main_layout)
+        window_surface.setLayout(main_layout)
 
         self.title_bar = TitleBar(self)
         main_layout.addWidget(self.title_bar)
@@ -1770,4 +1779,3 @@ def run_app():
     if launch_args:
         window.handle_external_paths(launch_args)
     return app.exec()
-

@@ -183,13 +183,16 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     }}
 
     QMainWindow#mainWindow {{
-        background-color: {colors.background};
-        border: 1px solid {colors.border};
-        border-radius: {radii.xl}px;
+        background-color: transparent;
     }}
 
     QWidget#centralContainer {{
+        background-color: transparent;
+    }}
+
+    QWidget#windowSurface {{
         background-color: {colors.surface};
+        border: 1px solid {colors.border};
         border-radius: {radii.xl}px;
     }}
 

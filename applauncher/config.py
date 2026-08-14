@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 APP_NAME = "AppLauncher"
 PORTABLE_MARKER = "portable.txt"
+BACKUP_LIMIT = 10
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "apps": [],
@@ -99,6 +101,26 @@ def _load_json(path: str) -> Any:
         return json.load(handle)
 
 
+def _backup_candidates(path: str) -> list[Path]:
+    """Return backup files from newest to oldest, including the legacy backup."""
+    config_path = Path(path)
+    history_dir = config_path.parent / f"{config_path.name}.backups"
+    history = sorted(history_dir.glob("*.json"), reverse=True) if history_dir.exists() else []
+    legacy = Path(f"{path}.bak")
+    if legacy.exists():
+        history.append(legacy)
+    return history
+
+
+def _load_backup(path: str) -> tuple[Dict[str, Any], Path] | None:
+    for backup_path in _backup_candidates(path):
+        try:
+            return _normalize_loaded(_load_json(str(backup_path))), backup_path
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Пропущен поврежденный бэкап: %s", backup_path)
+    return None
+
+
 def load_config(path: str) -> Dict[str, Any]:
     """Load configuration from JSON with validation."""
     if not os.path.exists(path):
@@ -107,13 +129,9 @@ def load_config(path: str) -> Dict[str, Any]:
     try:
         data = _load_json(path)
     except json.JSONDecodeError as exc:
-        backup_path = f"{path}.bak"
-        if os.path.exists(backup_path):
-            try:
-                backup_data = _load_json(backup_path)
-            except (json.JSONDecodeError, OSError):
-                raise ConfigError("Поврежден файл конфигурации") from exc
-            restored = _normalize_loaded(backup_data)
+        backup = _load_backup(path)
+        if backup is not None:
+            restored, backup_path = backup
             logger.warning("Конфигурация восстановлена из бэкапа: %s", backup_path)
             try:
                 save_config(path, restored, backup=False)
@@ -202,10 +220,21 @@ def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None
     if directory:
         os.makedirs(directory, exist_ok=True)
     if backup and os.path.exists(path):
-        backup_path = f"{path}.bak"
         try:
+            # Never replace a good backup with a damaged current file.
+            _load_json(path)
+            backup_path = f"{path}.bak"
             shutil.copyfile(path, backup_path)
-        except OSError as exc:  # pragma: no cover - filesystem dependent
+
+            config_path = Path(path)
+            history_dir = config_path.parent / f"{config_path.name}.backups"
+            history_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            shutil.copyfile(path, history_dir / f"{timestamp}.json")
+            history = sorted(history_dir.glob("*.json"), reverse=True)
+            for stale_backup in history[BACKUP_LIMIT:]:
+                stale_backup.unlink(missing_ok=True)
+        except (json.JSONDecodeError, OSError) as exc:  # pragma: no cover - filesystem dependent
             logger.warning("Не удалось создать бэкап конфигурации: %s", exc)
 
     tmp_path = f"{path}.tmp"
