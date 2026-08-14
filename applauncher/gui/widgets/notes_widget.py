@@ -469,6 +469,7 @@ class NoteCard(QWidget):
         self.title_input = QLineEdit()
         self.title_input.setText(note_data.get("title", ""))
         self.title_input.setPlaceholderText("Заголовок...")
+        self.title_input.setMinimumWidth(0)
         self.title_input.setProperty("role", "noteTitleInput")
         self.title_input.textChanged.connect(self._on_changed)
         header.addWidget(self.title_input)
@@ -692,8 +693,13 @@ class NotesWidget(QWidget):
     def _reflow_cards(self):
         self.cards_layout.invalidate()
         self.cards_layout.activate()
-        self.cards_container.adjustSize()
+        viewport_width = max(1, self.scroll_area.viewport().width())
+        self.cards_container.setMinimumHeight(self.cards_layout.heightForWidth(viewport_width))
         self.cards_container.updateGeometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reflow_cards()
 
     def _delete_note(self, note_id: str):
         for card in self._cards:
@@ -711,4 +717,3 @@ class NotesWidget(QWidget):
             card.deleteLater()
         self._cards.clear()
         self._reflow_cards()
-

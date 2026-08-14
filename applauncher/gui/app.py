@@ -42,12 +42,13 @@ from .icon_service import IconService
 from .layouts import FlowLayout
 from .local_shortcut_registry import LocalShortcutRegistry
 from .styles import TOKENS, apply_design_system, apply_shadow
-from .widgets import AppButton, AppListItem, HotkeyHudWidget, NotesWidget, TitleBar, UniversalSearchWidget
+from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, HotkeyHudWidget, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
 from ..services.file_transfer_service import FileTransferService
 from ..services.hotkey_service import HotkeyService
 from ..services.launch_service import LaunchService
 from ..services.launcher_service import LauncherService
+from ..services.clipboard_service import ClipboardService
 from ..services.local_hotkeys import (
     find_local_hotkey_conflict,
     format_hotkey_for_display,
@@ -172,6 +173,8 @@ class AppLauncher(QMainWindow):
         self._state_loaded = False
         self.launch_service = LaunchService()
         self.file_transfer_service = FileTransferService()
+        self.clipboard_service = ClipboardService(self)
+        self.clipboard_service.history_changed.connect(self._on_clipboard_history_changed)
         self.hotkey_service = HotkeyService(self)
         self.local_shortcut_registry = LocalShortcutRegistry(self, self.launch_item)
         self.search_service = SearchService(self.repository, self.macro_repository)
@@ -260,6 +263,7 @@ class AppLauncher(QMainWindow):
         self.section_tabs.addTab("Папки")
         self.section_tabs.addTab("Ссылки")
         self.section_tabs.addTab("Заметки")
+        self.section_tabs.addTab("Буфер обмена")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
         self.section_tabs.currentChanged.connect(self.on_section_changed)
@@ -404,6 +408,8 @@ class AppLauncher(QMainWindow):
         self.notes_widget = NotesWidget()
         self.notes_widget.notesChanged.connect(self._on_notes_changed)
         self.content_stack.addWidget(self.notes_widget)
+        self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
+        self.content_stack.addWidget(self.clipboard_widget)
 
         self.load_state()
         self.setWindowOpacity(self.service.window_opacity)
@@ -1143,6 +1149,7 @@ class AppLauncher(QMainWindow):
         self._restore_window_size()
         self.setWindowOpacity(self.service.window_opacity)
         self.notes_widget.set_notes(self.service.notes)
+        self.clipboard_service.set_history(self.service.clipboard_history)
         self._notes_dirty = False
         self.setup_tabs()
         self.sync_section_controls()
@@ -1179,6 +1186,7 @@ class AppLauncher(QMainWindow):
         if self._notes_dirty and hasattr(self, "notes_widget"):
             self.service.notes = self.notes_widget.get_notes()
             self._notes_dirty = False
+        self.service.clipboard_history = self.clipboard_service.serialize_history()
         error = self.service.persist_config()
         if error:
             QMessageBox.warning(self, "Ошибка", error)
@@ -1191,6 +1199,7 @@ class AppLauncher(QMainWindow):
         if notes_widget is not None:
             self.service.notes = notes_widget.get_notes()
             self._notes_dirty = False
+        self.service.clipboard_history = self.clipboard_service.serialize_history()
         if self._save_timer.isActive():
             self._save_timer.stop()
         error = self.service.persist_config()
@@ -1237,9 +1246,16 @@ class AppLauncher(QMainWindow):
         self._notes_dirty = True
         self.schedule_save()
 
+    def _on_clipboard_history_changed(self, _history: list) -> None:
+        if self._state_loaded:
+            self.schedule_save()
+
     def on_section_changed(self, _index: int):
         if self.is_notes_section:
             self.content_stack.setCurrentWidget(self.notes_widget)
+            return
+        if self.is_clipboard_section:
+            self.content_stack.setCurrentWidget(self.clipboard_widget)
             return
         self.content_stack.setCurrentIndex(0)
         self.setup_tabs()
@@ -1686,6 +1702,10 @@ class AppLauncher(QMainWindow):
     @property
     def is_notes_section(self) -> bool:
         return self.section_tabs.currentIndex() == 3
+
+    @property
+    def is_clipboard_section(self) -> bool:
+        return self.section_tabs.currentIndex() == 4
 
     def edit_item(self, item_data: dict):
         self.edit_app(item_data)
