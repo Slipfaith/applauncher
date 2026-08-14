@@ -13,7 +13,7 @@
 - Плитки и список для элементов в группах.
 - Разделы: `Приложения`, `Папки`, `Ссылки`, `Заметки`.
 - Глобальный хоткей и поиск (`Ctrl+K` / `Meta+K`).
-- **Локальные горячие клавиши** — назначить хоткей на любое приложение/папку/ссылку через ПКМ; работает только внутри лаунчера.
+- **Горячие клавиши элементов** — назначить глобальный хоткей на любое приложение/папку/ссылку через ПКМ; работает, даже когда окно лаунчера скрыто или неактивно.
 - **HUD-панель** — полоса с иконками приложений, которым назначены горячие клавиши; tooltip при наведении показывает имя и комбинацию.
 - **Сброс скролла** — при открытии лаунчера список плиток всегда прокручивается в начало.
 - Single-instance режим (второй запуск передаёт аргументы в уже открытое окно).
@@ -71,7 +71,7 @@ A local desktop launcher built with `PySide6` for Windows: launch apps, folders,
 - Grid and list view for items organized in groups.
 - Sections: `Apps`, `Folders`, `Links`, `Notes`.
 - Global hotkey and search (`Ctrl+K` / `Meta+K`).
-- **Local hotkeys** — assign a keyboard shortcut to any app/folder/link via right-click menu; active only while the launcher window is focused.
+- **Item hotkeys** — assign a global keyboard shortcut to any app/folder/link via the right-click menu; it works even while the launcher window is hidden or inactive.
 - **HUD panel** — a strip of app icons for items with assigned hotkeys, shown between the title bar and section tabs; hover tooltip displays the app name and key combination.
 - **Scroll reset** — the tile list always scrolls back to the top when the launcher is opened.
 - Single-instance mode (a second launch passes arguments to the already-running window).
