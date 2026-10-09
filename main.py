@@ -6,6 +6,9 @@ from applauncher.logger import setup_logging
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--verify-design":
+        from applauncher.gui.design_verification import verify_design
+        return verify_design(sys.argv[2:])
     setup_logging()
     return run_app()
 

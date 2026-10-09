@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from ...services.search_service import SearchResult, SearchService
 from ..tile_image.utils import load_icon_file
+from ..fallback_icons import fallback_icon
 
 
 class UniversalSearchWidget(QDialog):
@@ -29,6 +30,7 @@ class UniversalSearchWidget(QDialog):
         self.setWindowTitle("Universal Search")
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setModal(False)
+        self.setObjectName("universalSearch")
 
         layout = QVBoxLayout()
         layout.setSpacing(8)
@@ -97,7 +99,7 @@ class UniversalSearchWidget(QDialog):
             pixmap = load_icon_file(icon_path, preferred_size=64)
             if not pixmap.isNull():
                 return QIcon(pixmap)
-        return QIcon()
+        return fallback_icon(result.payload)
 
     def _on_return_pressed(self) -> None:
         current = self.result_list.currentItem()

@@ -42,11 +42,12 @@ class HotkeyCaptureDialog(QDialog):
 
         self.hotkey_label = QLabel(current_hotkey or "")
         self.hotkey_label.setAlignment(Qt.AlignCenter)
-        self.hotkey_label.setStyleSheet("font-size: 18px; padding: 12px;")
+        self.hotkey_label.setProperty("role", "hotkeyDisplay")
         layout.addWidget(self.hotkey_label)
 
         self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: #ff6b6b;")
+        self.error_label.setProperty("role", "errorText")
+        self.error_label.setWordWrap(True)
         layout.addWidget(self.error_label)
 
         btn_layout = QHBoxLayout()

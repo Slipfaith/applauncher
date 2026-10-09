@@ -1,9 +1,12 @@
-﻿"""Notes widget with sticky-note cards and Telegram-style spoiler support."""
+"""Notes widget with sticky-note cards and Telegram-style spoiler support."""
 from __future__ import annotations
 
 from collections.abc import Callable
+import base64
+import json
 from math import ceil
 import random
+import re
 import uuid
 
 from PySide6.QtWidgets import (
@@ -58,6 +61,8 @@ SPOILER_LEGACY_FG = QColor("#d1d5db")
 SPOILER_BG = QColor("#9ca3af")
 SPOILER_FG = QColor(SPOILER_BG)
 SPOILER_META_PROP = int(QTextFormat.UserProperty) + 1
+SPOILER_FOREGROUND_PROP = SPOILER_META_PROP + 1
+SPOILER_BACKGROUND_PROP = SPOILER_META_PROP + 2
 NOTE_MIN_WIDTH = 280
 NOTE_PREVIEW_LINES = 5
 NOTE_EDITOR_SIZE = QSize(560, 400)
@@ -237,6 +242,39 @@ class SpoilerTextEdit(QTextEdit):
         self._refresh_timer.setInterval(0)
         self._refresh_timer.timeout.connect(self._refresh_overlay)
 
+    def setHtml(self, text: str) -> None:
+        """Load old notes and optional colour metadata within the same HTML field."""
+        super().setHtml(text)
+        match = re.search(r'<meta name="applauncher-spoiler-styles" content="([\w=-]+)"\s*/?>', text)
+        if not match:
+            return
+        try:
+            records = json.loads(base64.urlsafe_b64decode(match.group(1)))
+            if not isinstance(records, list):
+                return
+            blocker = QSignalBlocker(self)
+            for record in records:
+                start, length, foreground, background = record
+                if not isinstance(start, int) or not isinstance(length, int):
+                    continue
+                if start < 0 or length <= 0 or start + length >= self.document().characterCount():
+                    continue
+                if not all(value == "none" or QColor(value).isValid() for value in (foreground, background)):
+                    continue
+                cursor = QTextCursor(self.document())
+                cursor.setPosition(start)
+                cursor.setPosition(start + length, QTextCursor.KeepAnchor)
+                if not self._is_hidden(cursor.charFormat()):
+                    continue
+                fmt = QTextCharFormat()
+                fmt.setProperty(SPOILER_FOREGROUND_PROP, foreground)
+                fmt.setProperty(SPOILER_BACKGROUND_PROP, background)
+                fmt.setProperty(SPOILER_META_PROP, True)
+                cursor.mergeCharFormat(fmt)
+            del blocker
+        except (ValueError, TypeError, KeyError):
+            return
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._overlay.setGeometry(self.viewport().rect())
@@ -284,7 +322,7 @@ class SpoilerTextEdit(QTextEdit):
         cursor = self.textCursor()
         if not cursor.hasSelection():
             return
-        cursor.mergeCharFormat(self._spoiler_format(hidden=True))
+        self._apply_spoiler_state(cursor.selectionStart(), cursor.selectionEnd(), hidden=True, emit_signal=True)
         self.refresh_overlay_now()
 
     def mouseDoubleClickEvent(self, event):
@@ -314,12 +352,18 @@ class SpoilerTextEdit(QTextEdit):
         document = self.document().clone()
         block = document.begin()
         ranges = []
+        color_records = []
         while block.isValid():
             iterator = block.begin()
             while not iterator.atEnd():
                 fragment = iterator.fragment()
                 if fragment.isValid() and self._is_spoiler(fragment.charFormat()):
                     ranges.append((fragment.position(), fragment.length()))
+                    fmt = fragment.charFormat()
+                    if fmt.hasProperty(SPOILER_FOREGROUND_PROP):
+                        color_records.append([fragment.position(), fragment.length(),
+                                              fmt.property(SPOILER_FOREGROUND_PROP),
+                                              fmt.property(SPOILER_BACKGROUND_PROP)])
                 iterator += 1
             block = block.next()
         for start, length in ranges:
@@ -328,6 +372,9 @@ class SpoilerTextEdit(QTextEdit):
             cursor.setPosition(start + length, QTextCursor.KeepAnchor)
             cursor.mergeCharFormat(self._spoiler_format(hidden=True))
         html = document.toHtml()
+        if color_records:
+            metadata = base64.urlsafe_b64encode(json.dumps(color_records).encode("utf-8")).decode("ascii")
+            html = html.replace("</head>", f'<meta name="applauncher-spoiler-styles" content="{metadata}" /></head>', 1)
         document.deleteLater()
         return html
 
@@ -348,7 +395,8 @@ class SpoilerTextEdit(QTextEdit):
             fmt.setForeground(SPOILER_FG)
             fmt.setBackground(SPOILER_BG)
         else:
-            fmt.setForeground(QColor(TOKENS.colors.text_primary))
+            # No explicit colour: revealed text follows the theme's text colour.
+            fmt.setForeground(QBrush(Qt.NoBrush))
             fmt.setBackground(QBrush(Qt.NoBrush))
         return fmt
 
@@ -356,10 +404,40 @@ class SpoilerTextEdit(QTextEdit):
         if start >= end:
             return
         blocker = None if emit_signal else QSignalBlocker(self)
+        segments = []
+        block = self.document().findBlock(start)
+        while block.isValid() and block.position() < end:
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                left = max(start, fragment.position())
+                right = min(end, fragment.position() + fragment.length())
+                if fragment.isValid() and left < right:
+                    segments.append((left, right, fragment.charFormat()))
+                iterator += 1
+            block = block.next()
         cursor = QTextCursor(self.document())
-        cursor.setPosition(start)
-        cursor.setPosition(end, QTextCursor.KeepAnchor)
-        cursor.mergeCharFormat(self._spoiler_format(hidden=hidden))
+        cursor.beginEditBlock()
+        for left, right, original in segments:
+            fmt = self._spoiler_format(hidden=hidden)
+            legacy_hidden = self._is_hidden(original) and not original.hasProperty(SPOILER_FOREGROUND_PROP)
+            for prop, brush in ((SPOILER_FOREGROUND_PROP, original.foreground()),
+                                (SPOILER_BACKGROUND_PROP, original.background())):
+                saved = original.property(prop)
+                if saved is None:
+                    saved = "none" if self._is_hidden(original) or brush.style() == Qt.NoBrush else brush.color().name(QColor.HexArgb)
+                if not legacy_hidden:
+                    fmt.setProperty(prop, saved)
+                if not hidden:
+                    restored = QBrush(Qt.NoBrush) if saved == "none" else QBrush(QColor(saved))
+                    if prop == SPOILER_FOREGROUND_PROP:
+                        fmt.setForeground(restored)
+                    else:
+                        fmt.setBackground(restored)
+            cursor.setPosition(left)
+            cursor.setPosition(right, QTextCursor.KeepAnchor)
+            cursor.mergeCharFormat(fmt)
+        cursor.endEditBlock()
         del blocker
 
     def _reveal_at(self, pos: int):
@@ -514,8 +592,8 @@ class NoteEditorPopup(QDialog):
         self._last_payload = None
         self._dismissed = False
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 8, 12, 12)
+        layout.setSpacing(8)
 
         layout.addLayout(self._build_header(note_data))
 
@@ -668,8 +746,8 @@ class NoteCard(QWidget):
         self.setMinimumWidth(NOTE_MIN_WIDTH)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(3)
+        layout.setContentsMargins(10, 8, 12, 12)
+        layout.setSpacing(4)
         layout.addLayout(self._build_header(note_data))
 
         self.content = NotePreviewTextEdit()

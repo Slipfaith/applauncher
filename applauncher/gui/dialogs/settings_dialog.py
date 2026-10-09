@@ -1,8 +1,9 @@
 """Settings dialog."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -17,10 +18,14 @@ from ..widgets.hotkey_settings_widget import HotkeySettingsWidget
 
 class SettingsDialog(QDialog):
     opacityChanged = Signal(float)
+    themeChanged = Signal(str)
     clearIconCacheRequested = Signal()
     resetSettingsRequested = Signal()
 
-    def __init__(self, current_hotkey: str, current_opacity: float, parent=None) -> None:
+    def __init__(
+        self, current_hotkey: str, current_opacity: float, parent=None,
+        *, current_theme: str = "auto",
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Настройки")
         self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
@@ -33,6 +38,21 @@ class SettingsDialog(QDialog):
             TOKENS.spacing.xl,
         )
         layout.setSpacing(TOKENS.spacing.lg)
+
+        theme_row = QHBoxLayout()
+        theme_label = QLabel("&Тема оформления")
+        self.theme_combo = QComboBox()
+        self.theme_combo.setAccessibleName("Тема оформления")
+        self.theme_combo.addItem("Автоматически", "auto")
+        self.theme_combo.addItem("Светлая", "light")
+        self.theme_combo.addItem("Тёмная", "dark")
+        self.theme_combo.setToolTip("Применяется сразу ко всем окнам. Автоматический режим следует теме Windows.")
+        self.set_theme(current_theme)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        theme_label.setBuddy(self.theme_combo)
+        theme_row.addWidget(theme_label)
+        theme_row.addWidget(self.theme_combo, 1)
+        layout.addLayout(theme_row)
 
         opacity_label = QLabel("Прозрачность окна")
         layout.addWidget(opacity_label)
@@ -75,6 +95,14 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+
+    def set_theme(self, mode: str) -> None:
+        index = self.theme_combo.findData(mode)
+        with QSignalBlocker(self.theme_combo):
+            self.theme_combo.setCurrentIndex(max(0, index))
+
+    def _on_theme_changed(self, _index: int) -> None:
+        self.themeChanged.emit(self.theme_combo.currentData())
 
     def set_opacity(self, value: float) -> None:
         percent = self._opacity_to_percent(value)

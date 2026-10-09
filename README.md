@@ -8,10 +8,15 @@
 
 Локальный desktop-лаунчер на `PySide6` для Windows: запуск приложений, папок, ссылок и быстрый поиск.
 
+Готовая сборка: [applauncher.exe](gui/implementation_review/exe/applauncher.exe) · [SHA-256](gui/implementation_review/exe/SHA256SUMS) · [Журнал изменений](CHANGELOG.md).
+
 ### Возможности
 
 - Плитки и список для элементов в группах.
-- Разделы: `Приложения`, `Папки`, `Ссылки`, `Заметки`.
+- Контурные иконки LINE для папок, ссылок и программ без собственной картинки; они подстраиваются под тему и масштаб экрана.
+- Разделы: `Приложения`, `Папки`, `Ссылки`, `Заметки`, `Буфер обмена`.
+- В «Настройки → Тема оформления» доступны автоматическая, светлая и тёмная темы. Выбор сразу меняет все окна и сохраняется между запусками; автоматический режим следует теме Windows. Прозрачность окна также сохраняется. Шрифты Onest и JetBrains Mono включены в пакет.
+- Кнопки «Меню» и «Настройки» находятся в заголовке окна. Кнопки заголовка, переключения вида и копирования доступны с клавиатуры.
 - Заметки показывают весь текст; кнопка ▾ сворачивает его до первых пяти строк. Двойной клик по карточке или F2 открывает отдельный редактор. Клик вне редактора закрывает его с автосохранением.
 - В редакторе заметок доступны жирный, курсив и подчёркивание: кнопки B/I/U или `Ctrl+B` / `Ctrl+I` / `Ctrl+U`. Форматирование сохраняется между запусками.
 - Глобальный хоткей и поиск (`Ctrl+K` / `Meta+K`).
@@ -39,7 +44,9 @@ python main.py
 ### Тесты
 
 ```powershell
-python -m pytest -q
+python -m pip install -r requirements-dev.txt
+$env:QT_QPA_PLATFORM = 'offscreen'
+python -m pytest tests -q
 ```
 
 ### Сборка (PyInstaller)
@@ -48,12 +55,8 @@ python -m pytest -q
 pyinstaller main.spec
 ```
 
-```powershell
-pyinstaller main_onedir.spec
-```
-
 - `main.spec` → onefile (один `exe`).
-- `main_onedir.spec` → onedir (папка с `exe` и зависимостями).
+- Спецификация включает шрифты и их лицензии из `applauncher/gui/fonts/`.
 
 ### Установщик (Inno Setup)
 
@@ -79,10 +82,15 @@ pyinstaller main.spec
 
 A local desktop launcher built with `PySide6` for Windows: launch apps, folders, links, and search quickly.
 
+Windows build: [applauncher.exe](gui/implementation_review/exe/applauncher.exe) · [SHA-256](gui/implementation_review/exe/SHA256SUMS) · [Changelog](CHANGELOG.md).
+
 ### Features
 
 - Grid and list view for items organized in groups.
-- Sections: `Apps`, `Folders`, `Links`, `Notes`.
+- Scalable LINE icons for folders, links and apps without their own picture, with colours that follow the selected theme.
+- Sections: `Apps`, `Folders`, `Links`, `Notes`, `Clipboard`.
+- Settings → Theme offers automatic, light and dark modes. Changes apply immediately to every window and persist between sessions; automatic mode follows Windows. Window opacity remains configurable. Onest and JetBrains Mono are bundled.
+- Menu and Settings are in the title bar. Header, view and copy buttons support keyboard navigation.
 - Notes show their full text; ▾ collapses a note to the first five lines. Double-click a card or press F2 to open its floating editor. Clicking outside closes it and saves changes automatically.
 - The note editor supports bold, italic and underline with B/I/U buttons or `Ctrl+B` / `Ctrl+I` / `Ctrl+U`. Formatting persists between sessions.
 - Global hotkey and search (`Ctrl+K` / `Meta+K`).
@@ -110,7 +118,9 @@ python main.py
 ### Tests
 
 ```powershell
-python -m pytest -q
+python -m pip install -r requirements-dev.txt
+$env:QT_QPA_PLATFORM = 'offscreen'
+python -m pytest tests -q
 ```
 
 ### Build (PyInstaller)
@@ -119,12 +129,8 @@ python -m pytest -q
 pyinstaller main.spec
 ```
 
-```powershell
-pyinstaller main_onedir.spec
-```
-
 - `main.spec` → onefile single `exe`.
-- `main_onedir.spec` → onedir folder with `exe` and dependencies.
+- The spec includes fonts and their licences from `applauncher/gui/fonts/`.
 
 ### Installer (Inno Setup)
 

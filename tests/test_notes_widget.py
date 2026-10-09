@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QMimeData, QPoint, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QTextCursor
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -310,3 +310,72 @@ def test_switching_editors_saves_previous_note(notes):
     assert first._editor is None
     assert first.content.toPlainText() == "last edit"
     assert second._editor.isVisible()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("custom_color", [False, True])
+def test_spoiler_theme_and_user_colors_survive_reveal_save_reload(notes, theme, custom_color):
+    app = QApplication.instance()
+    apply_design_system(app, theme=theme)
+    card = add_card(notes, "secret plain")
+    editor = card.open_editor().content
+    select(editor, 0, 6)
+    editor.setFontWeight(QFont.Bold)
+    editor.setFontItalic(True)
+    editor.setFontUnderline(True)
+    if custom_color:
+        editor.setTextColor(QColor("#ba459c"))
+        editor.setTextBackgroundColor(QColor("#ffdd55"))
+    editor._mask_selection()
+    hidden_html = editor.persisted_html()
+    editor._reveal_at(2)
+    fmt = char_format(editor, 2)
+    assert fmt.fontWeight() == QFont.Bold
+    assert fmt.fontItalic() and fmt.fontUnderline()
+    if custom_color:
+        assert fmt.foreground().color().name() == "#ba459c"
+        assert fmt.background().color().name() == "#ffdd55"
+    else:
+        assert fmt.foreground().style() == Qt.NoBrush
+    assert editor.persisted_html() == hidden_html
+    apply_design_system(app, theme="dark" if theme == "light" else "light")
+    assert editor.toPlainText() == "secret plain"
+    restored = SpoilerTextEdit()
+    restored.setHtml(editor.persisted_html())
+    assert SpoilerTextEdit._is_hidden(char_format(restored, 2))
+    restored._reveal_at(2)
+    fmt = char_format(restored, 2)
+    assert fmt.fontWeight() == QFont.Bold
+    assert fmt.fontItalic() and fmt.fontUnderline()
+    if custom_color:
+        assert fmt.foreground().color().name() == "#ba459c"
+        assert fmt.background().color().name() == "#ffdd55"
+    else:
+        assert fmt.foreground().style() == Qt.NoBrush
+    restored.deleteLater()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_legacy_spoiler_reveal_does_not_change_saved_html(notes, theme):
+    apply_design_system(QApplication.instance(), theme=theme)
+    card = add_card(notes, "")
+    card.content.setHtml('<p><b><span style="color:#9ca3af; background-color:#9ca3af">secret</span></b> plain</p>')
+    before = card.content.persisted_html()
+    card.content._reveal_at(2)
+    assert card.content.toPlainText() == "secret plain"
+    assert card.content.persisted_html() == before
+
+
+def test_spoiler_restores_mixed_colors_within_same_selection(notes):
+    card = add_card(notes, "")
+    content = card.open_editor().content
+    content.setHtml('<p><span style="color:#c93434">red</span><span style="color:#349d61">green</span> plain</p>')
+    select(content, 0, 8)
+    content._mask_selection()
+    restored = SpoilerTextEdit()
+    restored.setHtml(content.persisted_html())
+    restored._reveal_at(1)
+    assert restored.toPlainText() == "redgreen plain"
+    assert char_format(restored, 1).foreground().color().name() == "#c93434"
+    assert char_format(restored, 5).foreground().color().name() == "#349d61"
+    restored.deleteLater()

@@ -135,3 +135,8 @@ launcher_config.json
 # markdown docs
 *.md
 !README.md
+!/CHANGELOG.md
+!/gui/IMPLEMENTATION_PLAN_SOL_6_1.md
+
+# App icon required by main.spec and the Windows installer.
+!/sliplaun.ico

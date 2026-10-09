@@ -1,0 +1,16 @@
+{
+  "platform": "windows",
+  "tray_available": true,
+  "resize_programmatic": "passed",
+  "maximize_restore_native": "passed",
+  "title_drag_synthetic": "passed",
+  "tray_close_hide": "passed",
+  "isolated_ipc_argument_delivery": "passed",
+  "global_hotkey_registration": "passed",
+  "hotkey_error": null,
+  "global_hotkey_synthetic_dispatch": "passed",
+  "global_hotkey_released": true,
+  "manual_edge_drag": "unverified",
+  "physical_global_keypress": "unverified",
+  "explorer_outlook_drop": "unverified"
+}

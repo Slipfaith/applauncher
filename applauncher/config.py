@@ -25,6 +25,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "macro_view_mode": "grid",
     "global_hotkey": "Ctrl+Alt+Space",
     "window_opacity": 0.75,
+    "theme_mode": "auto",
     "window_size": None,
     "notes": [],
     "clipboard_history": [],
@@ -70,6 +71,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
             "macro_view_mode": DEFAULT_CONFIG["macro_view_mode"],
             "global_hotkey": DEFAULT_CONFIG["global_hotkey"],
             "window_opacity": DEFAULT_CONFIG["window_opacity"],
+            "theme_mode": DEFAULT_CONFIG["theme_mode"],
             "window_size": None,
             "notes": [],
             "clipboard_history": [],
@@ -82,6 +84,9 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
+    theme_mode = data.get("theme_mode", DEFAULT_CONFIG["theme_mode"])
+    if not isinstance(theme_mode, str) or theme_mode not in ("auto", "light", "dark"):
+        theme_mode = DEFAULT_CONFIG["theme_mode"]
     window_size = normalize_window_size(data.get("window_size"))
     notes = normalize_list(data.get("notes"), [])
     clipboard_history = normalize_list(data.get("clipboard_history"), [])
@@ -94,6 +99,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
         "macro_view_mode": macro_view_mode,
         "global_hotkey": global_hotkey,
         "window_opacity": window_opacity,
+        "theme_mode": theme_mode,
         "window_size": window_size,
         "notes": notes,
         "clipboard_history": clipboard_history,

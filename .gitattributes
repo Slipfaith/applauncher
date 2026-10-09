@@ -1,0 +1,5 @@
+# Keep supplied design sources and verification artifacts byte-for-byte.
+# Original reference sources and license texts retain their supplied whitespace.
+gui/** -text -whitespace
+gui/implementation_review/** whitespace=cr-at-eol
+applauncher/gui/fonts/*-OFL.txt -whitespace

@@ -107,7 +107,8 @@ class AddAppDialog(QDialog):
         self.icon_preview.setFixedSize(*TOKENS.sizes.grid_button)
         layout.addWidget(self.icon_preview)
 
-        focus_help = QLabel(
+        focus_help = QLabel("Кадрирование изображения")
+        focus_help.setToolTip(
             "Перетаскивайте рамку, чтобы выбрать область, и используйте угловые маркеры для изменения размера."
         )
         layout.addWidget(focus_help)

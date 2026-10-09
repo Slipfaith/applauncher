@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QKeySequence, QShortcut
 
 from ...services.clipboard_service import ClipboardService
+from ..styles import TOKENS
 
 
 class ClipboardHistoryWidget(QWidget):
@@ -26,7 +27,8 @@ class ClipboardHistoryWidget(QWidget):
         self.clipboard_service = clipboard_service
 
         layout = QVBoxLayout()
-        layout.setSpacing(8)
+        layout.setContentsMargins(*TOKENS.layout.content_margins)
+        layout.setSpacing(TOKENS.layout.content_spacing)
 
         header = QLabel("Буфер обмена")
         header.setProperty("role", "titleText")

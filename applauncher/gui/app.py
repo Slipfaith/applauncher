@@ -41,6 +41,7 @@ from .dialogs import AddAppDialog, HotkeyCaptureDialog, SettingsDialog
 from .icon_service import IconService
 from .layouts import FlowLayout
 from .local_shortcut_registry import LocalShortcutRegistry
+from .glyphs import GlyphButton, KeyboardButton
 from .styles import TOKENS, apply_design_system, apply_shadow
 from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, HotkeyHudWidget, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
@@ -224,29 +225,16 @@ class AppLauncher(QMainWindow):
         self.title_bar = TitleBar(self)
         main_layout.addWidget(self.title_bar)
 
-        settings_bar = QWidget()
-        settings_layout = QHBoxLayout()
-        settings_layout.setContentsMargins(
-            TOKENS.layout.content_margins[0],
-            TOKENS.spacing.xs,
-            TOKENS.layout.content_margins[2],
-            TOKENS.spacing.xs,
-        )
-        settings_layout.setSpacing(TOKENS.spacing.sm)
-        settings_bar.setLayout(settings_layout)
-
-        menu_button = QPushButton("Меню")
-        menu_button.setProperty("variant", "secondary")
+        # Меню and Настройки live in the title bar (design system: TitleBar).
+        menu_button = KeyboardButton("Меню")
         menu_button.clicked.connect(self.show_top_menu)
 
-        settings_button = QPushButton("Настройки")
-        settings_button.setProperty("variant", "secondary")
+        settings_button = KeyboardButton("Настройки")
         settings_button.clicked.connect(self.show_settings)
-        settings_layout.addStretch()
-        settings_layout.addWidget(menu_button)
-        settings_layout.addWidget(settings_button)
+        self.title_bar.add_action(menu_button)
+        self.title_bar.add_action(settings_button)
         self.menu_button = menu_button
-        main_layout.addWidget(settings_bar)
+        self.settings_button = settings_button
 
         self.hotkey_hud = HotkeyHudWidget()
         self.hotkey_hud.slot_clicked.connect(self.launch_item)
@@ -259,6 +247,8 @@ class AppLauncher(QMainWindow):
         section_container.setLayout(section_layout)
 
         self.section_tabs = QTabBar()
+        self.section_tabs.setObjectName("sectionTabs")
+        self.section_tabs.setDrawBase(False)
         self.section_tabs.addTab("Приложения")
         self.section_tabs.addTab("Папки")
         self.section_tabs.addTab("Ссылки")
@@ -269,7 +259,7 @@ class AppLauncher(QMainWindow):
         self.section_tabs.setElideMode(Qt.ElideRight)
         self.section_tabs.setUsesScrollButtons(True)
         self.section_tabs.currentChanged.connect(self.on_section_changed)
-        section_layout.addWidget(self.section_tabs)
+        section_layout.addWidget(self.section_tabs, 0, Qt.AlignLeft)
 
         main_layout.addWidget(section_container)
 
@@ -310,17 +300,17 @@ class AppLauncher(QMainWindow):
         self.tab_bar.setObjectName("groupTabs")
         self.tab_bar.appDropRequested.connect(self.move_app_by_path)
         self.tabs.setTabBar(self.tab_bar)
+        self.tab_bar.setDrawBase(False)
         self.tabs.tabBarClicked.connect(self.on_tab_clicked)
         self.tabs.currentChanged.connect(lambda _: self.refresh_view())
         self.tab_bar.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tab_bar.customContextMenuRequested.connect(self.show_tab_context_menu)
         tabs_row.addWidget(self.tabs)
 
-        self.add_group_btn = QPushButton("+")
-        self.add_group_btn.setProperty("variant", "secondary")
+        self.add_group_btn = GlyphButton("plus", tooltip="Добавить подвкладку")
+        self.add_group_btn.setProperty("variant", "ghost")
         self.add_group_btn.setProperty("role", "iconButton")
-        self.add_group_btn.setFixedSize(28, 28)
-        self.add_group_btn.setToolTip("Добавить подвкладку")
+        self.add_group_btn.setFixedSize(30, 30)
         self.add_group_btn.clicked.connect(self.add_group)
         tabs_row.addWidget(self.add_group_btn)
 
@@ -341,7 +331,7 @@ class AppLauncher(QMainWindow):
         self.search_input.returnPressed.connect(self.launch_top_result)
         search_layout.addWidget(self.search_input)
 
-        self.view_toggle = QPushButton()
+        self.view_toggle = GlyphButton("list")
         self.view_toggle.setProperty("variant", "control")
         self.view_toggle.setProperty("role", "viewToggle")
         self.view_toggle.clicked.connect(self.toggle_view_mode)
@@ -353,7 +343,6 @@ class AppLauncher(QMainWindow):
         self.add_btn = QPushButton("Добавить приложение")
         self.add_btn.setProperty("variant", "accent")
         self.add_btn.clicked.connect(self.add_item)
-        apply_shadow(self.add_btn, TOKENS.shadows.raised)
 
         self.clear_btn = QPushButton("Удалить все")
         self.clear_btn.setProperty("variant", "danger")
@@ -413,6 +402,13 @@ class AppLauncher(QMainWindow):
         self.content_stack.addWidget(self.notes_widget)
         self.clipboard_widget = ClipboardHistoryWidget(self.clipboard_service)
         self.content_stack.addWidget(self.clipboard_widget)
+
+        keyboard_order = [menu_button, settings_button, self.title_bar.min_button,
+                          self.title_bar.max_button, self.title_bar.close_button,
+                          self.section_tabs, self.tab_bar, self.add_group_btn,
+                          self.search_input, self.view_toggle, self.add_btn, self.clear_btn]
+        for previous, following in zip(keyboard_order, keyboard_order[1:]):
+            QWidget.setTabOrder(previous, following)
 
         self.load_state()
         self.setWindowOpacity(self.service.window_opacity)
@@ -485,9 +481,11 @@ class AppLauncher(QMainWindow):
                 self.service.global_hotkey,
                 self.service.window_opacity,
                 self,
+                current_theme=self.service.theme_mode,
             )
             self.settings_dialog.hotkey_widget.hotkeyChanged.connect(self.update_hotkey)
             self.settings_dialog.opacityChanged.connect(self.update_opacity)
+            self.settings_dialog.themeChanged.connect(self.update_theme)
             self.settings_dialog.clearIconCacheRequested.connect(
                 self._on_clear_icon_cache_requested
             )
@@ -497,6 +495,7 @@ class AppLauncher(QMainWindow):
         else:
             self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
             self.settings_dialog.set_opacity(self.service.window_opacity)
+            self.settings_dialog.set_theme(self.service.theme_mode)
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
@@ -542,6 +541,7 @@ class AppLauncher(QMainWindow):
         if self.settings_dialog is not None:
             self.settings_dialog.hotkey_widget.set_hotkey(self.service.global_hotkey)
             self.settings_dialog.set_opacity(self.service.window_opacity)
+            self.settings_dialog.set_theme(self.service.theme_mode)
         QMessageBox.information(self, "Настройки", "Сброс выполнен.")
 
     def show_top_menu(self):
@@ -1146,6 +1146,7 @@ class AppLauncher(QMainWindow):
 
     def load_state(self):
         error = self.service.load_state()
+        apply_design_system(QApplication.instance(), theme=self.service.theme_mode)
         if error:
             QMessageBox.warning(self, "Ошибка конфигурации", error)
         removed_cache_icons = self.icon_service.cleanup_broken_png_cache()
@@ -1163,10 +1164,13 @@ class AppLauncher(QMainWindow):
             self.schedule_save()
 
     def _restore_window_size(self) -> None:
-        saved_size = self.service.window_size
-        if not saved_size:
-            return
-        self.resize(*saved_size)
+        width, height = self.service.window_size or (1000, 620)
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = min(width, available.width())
+            height = min(height, available.height())
+        self.resize(max(self.minimumWidth(), width), max(self.minimumHeight(), height))
 
     def _save_window_size(self) -> None:
         if not self._state_loaded or self.isMaximized() or self.isFullScreen():
@@ -1180,6 +1184,15 @@ class AppLauncher(QMainWindow):
     def update_opacity(self, value: float) -> None:
         self.service.window_opacity = value
         self.setWindowOpacity(value)
+        self.schedule_save()
+
+    def update_theme(self, mode: str) -> None:
+        if mode == self.service.theme_mode:
+            return
+        apply_design_system(QApplication.instance(), theme=mode)
+        self.service.theme_mode = mode
+        if self.settings_dialog is not None:
+            self.settings_dialog.set_theme(mode)
         self.schedule_save()
 
     def schedule_save(self):
@@ -1351,12 +1364,14 @@ class AppLauncher(QMainWindow):
 
     def _sync_view_toggle(self):
         is_grid = self.view_mode == "grid"
+        # The glyph shows the view you switch TO.
         if is_grid:
-            self.view_toggle.setText("?")
+            self.view_toggle.set_glyph("list")
             self.view_toggle.setToolTip("Список")
         else:
-            self.view_toggle.setText("?")
+            self.view_toggle.set_glyph("grid")
             self.view_toggle.setToolTip("Сетка")
+        self.view_toggle.setAccessibleName(self.view_toggle.toolTip())
 
     def _resize_edges_at(self, pos: QPoint) -> Qt.Edges:
         border = max(4, int(self._resize_border))
@@ -1453,13 +1468,15 @@ class AppLauncher(QMainWindow):
         return None
 
     def eventFilter(self, obj, event):
+        etype = event.type()
+        if etype not in (QEvent.MouseMove, QEvent.MouseButtonPress):
+            return super().eventFilter(obj, event)
         if self.isMaximized():
             return super().eventFilter(obj, event)
         host_window = obj.window() if hasattr(obj, "window") else None
         if host_window is None or host_window != self:
             return super().eventFilter(obj, event)
 
-        etype = event.type()
         if etype == QEvent.MouseMove:
             global_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
             edges = self._resize_edges_at(self.mapFromGlobal(global_pos))

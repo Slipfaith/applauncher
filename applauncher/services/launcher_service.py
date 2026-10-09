@@ -26,6 +26,7 @@ class LauncherService:
         self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
         self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
+        self.theme_mode = DEFAULT_CONFIG["theme_mode"]
         self.window_size: tuple[int, int] | None = None
         self.notes: list[dict] = []
         self.clipboard_history: list[dict] = []
@@ -60,6 +61,7 @@ class LauncherService:
         self.macro_view_mode = data.get("macro_view_mode", self.macro_view_mode)
         self.global_hotkey = data.get("global_hotkey", self.global_hotkey)
         self.window_opacity = data.get("window_opacity", self.window_opacity)
+        self.theme_mode = data.get("theme_mode", DEFAULT_CONFIG["theme_mode"])
         loaded_window_size = data.get("window_size")
         if (
             isinstance(loaded_window_size, list)
@@ -166,6 +168,7 @@ class LauncherService:
             "macro_view_mode": self.macro_view_mode,
             "global_hotkey": self.global_hotkey,
             "window_opacity": self.window_opacity,
+            "theme_mode": self.theme_mode,
             "window_size": list(self.window_size) if self.window_size else None,
             "notes": self.notes,
             "clipboard_history": self.clipboard_history,
@@ -190,6 +193,7 @@ class LauncherService:
         self.macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
         self.global_hotkey = DEFAULT_CONFIG["global_hotkey"]
         self.window_opacity = DEFAULT_CONFIG["window_opacity"]
+        self.theme_mode = DEFAULT_CONFIG["theme_mode"]
         self.window_size = None
         self.notes = []
         self.clipboard_history = []

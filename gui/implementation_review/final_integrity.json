@@ -1,0 +1,20 @@
+{
+  "exe_sha256": "dd0fd36144301d3387fac8066c8e503cd92c009f9dad0efdeefea5f28798570e",
+  "exe_bytes": 46837705,
+  "embedded_fonts_and_licenses": [
+    "applauncher\\gui\\fonts\\JetBrainsMono-OFL.txt",
+    "applauncher\\gui\\fonts\\JetBrainsMono-Variable.ttf",
+    "applauncher\\gui\\fonts\\Onest-OFL.txt",
+    "applauncher\\gui\\fonts\\Onest-Variable.ttf"
+  ],
+  "foreign_system_dlls": [],
+  "source_files": 24,
+  "source_changed": [],
+  "verified_platforms": [
+    "offscreen",
+    "windows"
+  ],
+  "theme_selector_verified": true,
+  "line_icons_verified": true,
+  "passed": true
+}

@@ -1,0 +1,39 @@
+{
+  "platform": "windows",
+  "samples": [
+    {
+      "mode": "dark",
+      "resolved": "dark",
+      "synchronous_ms": 644.4,
+      "painted_ms": 756.76,
+      "dialog_size": [
+        420,
+        303
+      ],
+      "persisted": "dark"
+    },
+    {
+      "mode": "light",
+      "resolved": "light",
+      "synchronous_ms": 665.4,
+      "painted_ms": 782.1,
+      "dialog_size": [
+        420,
+        303
+      ],
+      "persisted": "light"
+    },
+    {
+      "mode": "auto",
+      "resolved": "light",
+      "synchronous_ms": 4.12,
+      "painted_ms": 33.13,
+      "dialog_size": [
+        420,
+        303
+      ],
+      "persisted": "auto"
+    }
+  ],
+  "passed": true
+}

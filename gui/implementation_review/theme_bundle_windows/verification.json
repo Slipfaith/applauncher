@@ -1,0 +1,52 @@
+{
+  "frozen": true,
+  "platform": "windows",
+  "font_families": [
+    "Onest",
+    "Onest Thin",
+    "Onest ExtraLight",
+    "Onest Light",
+    "Onest Medium",
+    "Onest SemiBold",
+    "Onest ExtraBold",
+    "Onest Black",
+    "JetBrains Mono",
+    "JetBrains Mono Thin",
+    "JetBrains Mono ExtraLight",
+    "JetBrains Mono Light",
+    "JetBrains Mono Medium",
+    "JetBrains Mono ExtraBold"
+  ],
+  "themes": [
+    {
+      "theme": "light",
+      "text": "#0a1330",
+      "ui_font": "Onest",
+      "mono_font": "JetBrains Mono",
+      "settings_mode": "light",
+      "settings_text": "#0a1330",
+      "fallback_icons": [
+        "applauncher-line-folder",
+        "applauncher-line-link",
+        "applauncher-line-app"
+      ],
+      "tile_elided": true
+    },
+    {
+      "theme": "dark",
+      "text": "#edf1fa",
+      "ui_font": "Onest",
+      "mono_font": "JetBrains Mono",
+      "settings_mode": "dark",
+      "settings_text": "#edf1fa",
+      "fallback_icons": [
+        "applauncher-line-folder",
+        "applauncher-line-link",
+        "applauncher-line-app"
+      ],
+      "tile_elided": true
+    }
+  ],
+  "warnings": [],
+  "passed": true
+}

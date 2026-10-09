@@ -1,0 +1,19 @@
+{
+  "platform": "windows",
+  "screenshots": [
+    "line01_windows125_light_section0_grid.png",
+    "line01_windows125_light_section0_list.png",
+    "line01_windows125_light_section1_grid.png",
+    "line01_windows125_light_section1_list.png",
+    "line01_windows125_light_section2_grid.png",
+    "line01_windows125_light_section2_list.png",
+    "line01_windows125_dark_section0_grid.png",
+    "line01_windows125_dark_section0_list.png",
+    "line01_windows125_dark_section1_grid.png",
+    "line01_windows125_dark_section1_list.png",
+    "line01_windows125_dark_section2_grid.png",
+    "line01_windows125_dark_section2_list.png"
+  ],
+  "device_ratio": 1.25,
+  "passed": true
+}
