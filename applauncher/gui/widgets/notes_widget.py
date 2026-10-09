@@ -1,9 +1,14 @@
 ﻿"""Notes widget with sticky-note cards and Telegram-style spoiler support."""
+from __future__ import annotations
+
+from collections.abc import Callable
+from math import ceil
 import random
 import uuid
 
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QHBoxLayout,
     QLayout,
     QLineEdit,
@@ -15,15 +20,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtCore import (
-    QAbstractAnimation,
-    QEasingCurve,
     QEvent,
+    QObject,
     QPoint,
     QPointF,
-    QPropertyAnimation,
     QRect,
     QRectF,
     QSize,
+    QSizeF,
     QSignalBlocker,
     Qt,
     Signal,
@@ -35,11 +39,17 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
+    QFont,
+    QContextMenuEvent,
+    QHideEvent,
+    QMouseEvent,
+    QKeySequence,
+    QShortcut,
     QTextCharFormat,
     QTextCursor,
     QTextFormat,
     QTransform,
-    QMouseEvent,
+    QWheelEvent,
 )
 
 from ..styles import TOKENS
@@ -48,10 +58,9 @@ SPOILER_LEGACY_FG = QColor("#d1d5db")
 SPOILER_BG = QColor("#9ca3af")
 SPOILER_FG = QColor(SPOILER_BG)
 SPOILER_META_PROP = int(QTextFormat.UserProperty) + 1
-NOTE_WIDTH = TOKENS.sizes.grid_button[0] * 2 + TOKENS.layout.grid_layout_spacing
-NOTE_CONTENT_MIN_HEIGHT = 60
-NOTE_CONTENT_MAX_HEIGHT = 300
-NOTE_TOGGLE_DURATION_MS = 180
+NOTE_MIN_WIDTH = 280
+NOTE_PREVIEW_LINES = 5
+NOTE_EDITOR_SIZE = QSize(560, 400)
 
 _NOISE_PIXMAP = None
 
@@ -125,30 +134,20 @@ class _MasonryLayout(QLayout):
         if not items:
             return top + bottom
 
-        item_width = max(item.sizeHint().width() for item in items)
         avail = max(0, effective.width())
-
-        if item_width <= 0:
-            num_cols = 1
-        else:
-            num_cols = max(1, (avail + self._h_spacing) // (item_width + self._h_spacing))
-
-        if num_cols > 1:
-            remaining = max(0, avail - item_width * num_cols)
-            spacing_x = max(float(self._h_spacing), remaining / float(num_cols - 1))
-        else:
-            spacing_x = 0.0
+        num_cols = max(1, (avail + self._h_spacing) // (NOTE_MIN_WIDTH + self._h_spacing))
+        item_width = max(1, (avail - self._h_spacing * (num_cols - 1)) // num_cols)
 
         col_y = [float(effective.y())] * num_cols
 
         for idx, item in enumerate(items):
             col = idx % num_cols
             hint = item.sizeHint()
-            x = effective.x() + col * (item_width + spacing_x)
+            x = effective.x() + col * (item_width + self._h_spacing)
             y = col_y[col]
 
             if not test_only:
-                item.setGeometry(QRect(QPoint(int(round(x)), int(round(y))), hint))
+                item.setGeometry(QRect(int(x), int(round(y)), item_width, hint.height()))
 
             col_y[col] = y + hint.height() + self._v_spacing
 
@@ -228,7 +227,7 @@ class SpoilerTextEdit(QTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAcceptRichText(False)
+        self.setAcceptRichText(True)
         self._spoiler_rects_cache: list[QRect] = []
         self._overlay = _SpoilerOverlay(self)
         self.textChanged.connect(self._schedule_refresh)
@@ -290,17 +289,47 @@ class SpoilerTextEdit(QTextEdit):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
-            cursor = self.cursorForPosition(event.pos())
+            cursor = self.cursorForPosition(event.position().toPoint())
+            self.setFocus(Qt.MouseFocusReason)
             if self._is_spoiler(cursor.charFormat()):
+                self.setTextCursor(cursor)
                 self._reveal_at(cursor.position())
-                return
+            else:
+                # A fresh cursor discards any anchor left on another line.
+                cursor.select(QTextCursor.WordUnderCursor)
+                self.setTextCursor(cursor)
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
 
     @staticmethod
     def _is_spoiler(fmt: QTextCharFormat) -> bool:
         return bool(fmt.property(SPOILER_META_PROP)) or (
-            fmt.foreground().color() == SPOILER_LEGACY_FG and fmt.background().color() == SPOILER_BG
+            fmt.foreground().color() in (SPOILER_LEGACY_FG, SPOILER_FG)
+            and fmt.background().color() == SPOILER_BG
         )
+
+    def persisted_html(self) -> str:
+        """Save spoilers hidden without changing the live cursor or undo history."""
+        document = self.document().clone()
+        block = document.begin()
+        ranges = []
+        while block.isValid():
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid() and self._is_spoiler(fragment.charFormat()):
+                    ranges.append((fragment.position(), fragment.length()))
+                iterator += 1
+            block = block.next()
+        for start, length in ranges:
+            cursor = QTextCursor(document)
+            cursor.setPosition(start)
+            cursor.setPosition(start + length, QTextCursor.KeepAnchor)
+            cursor.mergeCharFormat(self._spoiler_format(hidden=True))
+        html = document.toHtml()
+        document.deleteLater()
+        return html
 
     @classmethod
     def _is_hidden(cls, fmt: QTextCharFormat) -> bool:
@@ -431,187 +460,375 @@ class SpoilerTextEdit(QTextEdit):
         return rects
 
 
+class NotePreviewTextEdit(SpoilerTextEdit):
+    """Read-only preview; the tab owns scrolling and double-click opens editing."""
+
+    editRequested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._display_height = 60
+        self.setReadOnly(True)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        self.setToolTip("Двойной клик — редактировать заметку")
+        self.setAccessibleName("Текст заметки")
+
+    def sizeHint(self) -> QSize:
+        return QSize(NOTE_MIN_WIDTH, self._display_height)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, self._display_height)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        event.ignore()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            self.editRequested.emit(self.cursorForPosition(event.position().toPoint()).position())
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        menu = self.createStandardContextMenu()
+        menu.addSeparator()
+        menu.addAction("Редактировать заметку", lambda: self.editRequested.emit(0))
+        menu.exec(event.globalPos())
+        menu.deleteLater()
+
+
+class NoteEditorPopup(QDialog):
+    """Floating rich-text editor that flushes changes before closing."""
+
+    edited = Signal(str, str)
+    dismissed = Signal()
+
+    def __init__(self, note_data: dict, parent: QWidget | None = None) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setWindowTitle("Редактировать заметку")
+        self.setObjectName("noteEditorPopup")
+        self.setMinimumSize(360, 260)
+        self.resize(NOTE_EDITOR_SIZE)
+        self._last_payload = None
+        self._dismissed = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        layout.addLayout(self._build_header(note_data))
+
+        self.content = SpoilerTextEdit()
+        self.content.setAccessibleName("Редактор заметки")
+        self.content.setPlaceholderText("Текст заметки…")
+        self.content.setHtml(note_data.get("content_html", ""))
+        layout.addLayout(self._build_toolbar())
+        layout.addWidget(self.content, 1)
+        self._shortcuts = []
+        for sequence, callback in (
+            ("Ctrl+B", self.toggle_bold),
+            ("Ctrl+I", self.toggle_italic),
+            ("Ctrl+U", self.toggle_underline),
+        ):
+            shortcut = QShortcut(QKeySequence(sequence), self.content)
+            shortcut.setContext(Qt.WidgetShortcut)
+            shortcut.activated.connect(callback)
+            self._shortcuts.append(shortcut)
+        self.content.currentCharFormatChanged.connect(self._sync_format_buttons)
+        self._sync_format_buttons()
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(300)
+        self._save_timer.timeout.connect(self.flush_changes)
+        self.content.textChanged.connect(self._save_timer.start)
+        self.title_input.textChanged.connect(self._schedule_save)
+        self._last_payload = (self.title_input.text(), self.content.persisted_html())
+        self._app = QApplication.instance()
+        if self._app is not None:
+            self._app.installEventFilter(self)
+
+
+    def _build_header(self, note_data: dict) -> QHBoxLayout:
+        header = QHBoxLayout()
+        self.title_input = QLineEdit(note_data.get("title", ""))
+        self.title_input.setPlaceholderText("Заголовок заметки")
+        self.title_input.setAccessibleName("Заголовок заметки")
+        header.addWidget(self.title_input, 1)
+        close_button = QPushButton("✕")
+        close_button.setProperty("role", "iconButton")
+        close_button.setFixedSize(28, 28)
+        close_button.setToolTip("Закрыть и сохранить")
+        close_button.setAccessibleName("Закрыть и сохранить")
+        close_button.clicked.connect(self.close)
+        header.addWidget(close_button)
+        return header
+
+
+    def _build_toolbar(self) -> QHBoxLayout:
+        toolbar = QHBoxLayout()
+        self.bold_button = self._format_button("B", "Жирный (Ctrl+B)", self.toggle_bold)
+        self.italic_button = self._format_button("I", "Курсив (Ctrl+I)", self.toggle_italic)
+        self.underline_button = self._format_button("U", "Подчёркнутый (Ctrl+U)", self.toggle_underline)
+        for button in (self.bold_button, self.italic_button, self.underline_button):
+            toolbar.addWidget(button)
+        toolbar.addStretch(1)
+        return toolbar
+
+    def _schedule_save(self, _text: str) -> None:
+        self._save_timer.start()
+
+    def _format_button(self, label: str, tooltip: str, callback: Callable[[], None]) -> QPushButton:
+        button = QPushButton(label)
+        button.setProperty("role", "noteFormatButton")
+        button.setFixedSize(30, 28)
+        button.setCheckable(True)
+        button.setFocusPolicy(Qt.NoFocus)
+        button.setToolTip(tooltip)
+        button.setAccessibleName(tooltip)
+        font = button.font()
+        font.setBold(label == "B")
+        font.setItalic(label == "I")
+        font.setUnderline(label == "U")
+        button.setFont(font)
+        button.clicked.connect(callback)
+        return button
+
+    def toggle_bold(self) -> None:
+        fmt = QTextCharFormat()
+        fmt.setFontWeight(QFont.Normal if self.content.fontWeight() >= QFont.Bold else QFont.Bold)
+        self._apply_format(fmt)
+
+    def toggle_italic(self) -> None:
+        fmt = QTextCharFormat()
+        fmt.setFontItalic(not self.content.fontItalic())
+        self._apply_format(fmt)
+
+    def toggle_underline(self) -> None:
+        fmt = QTextCharFormat()
+        fmt.setFontUnderline(not self.content.fontUnderline())
+        self._apply_format(fmt)
+
+    def _apply_format(self, fmt: QTextCharFormat) -> None:
+        self.content.mergeCurrentCharFormat(fmt)
+        self.content.setFocus(Qt.OtherFocusReason)
+        self._sync_format_buttons()
+
+    def _sync_format_buttons(self, _format: QTextCharFormat | None = None) -> None:
+        self.bold_button.setChecked(self.content.fontWeight() >= QFont.Bold)
+        self.italic_button.setChecked(self.content.fontItalic())
+        self.underline_button.setChecked(self.content.fontUnderline())
+
+    def flush_changes(self) -> None:
+        self._save_timer.stop()
+        payload = (self.title_input.text(), self.content.persisted_html())
+        if payload != self._last_payload:
+            self._last_payload = payload
+            self.edited.emit(*payload)
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.WindowDeactivate and self.isVisible():
+            active = QApplication.activePopupWidget()
+            if active is None or active is self or not self.isAncestorOf(active):
+                self.close()
+        return super().event(event)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if self.isVisible() and event.type() == QEvent.MouseButtonPress:
+            inside = self.rect().contains(self.mapFromGlobal(event.globalPosition().toPoint()))
+            child = isinstance(obj, QWidget) and self.isAncestorOf(obj)
+            if not inside and not child:
+                self.close()
+        return super().eventFilter(obj, event)
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        self.flush_changes()
+        if self._app is not None:
+            self._app.removeEventFilter(self)
+        super().hideEvent(event)
+        if not self._dismissed:
+            self._dismissed = True
+            self.dismissed.emit()
+
+
 class NoteCard(QWidget):
-    """Collapsible sticky-note card with title and spoiler-enabled content."""
+    """Content-sized note with an optional five-line preview and popup editor."""
 
     changed = Signal(str)
     layoutChanged = Signal()
     deleteRequested = Signal(str)
 
-    def __init__(self, note_data: dict, parent=None):
+    def __init__(self, note_data: dict, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.note_id = note_data.get("id", str(uuid.uuid4()))
-        self._collapsed = note_data.get("collapsed", False)
-        self._app = QApplication.instance()
+        self._collapsed = bool(note_data.get("collapsed", False))
+        self._editor: NoteEditorPopup | None = None
         self.setProperty("role", "noteCard")
-        self.setFixedWidth(NOTE_WIDTH)
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Maximum)
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setMinimumWidth(NOTE_MIN_WIDTH)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(3)
+        layout.addLayout(self._build_header(note_data))
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(
-            TOKENS.spacing.sm,
-            TOKENS.spacing.sm,
-            TOKENS.spacing.sm,
-            TOKENS.spacing.sm,
-        )
-        layout.setSpacing(TOKENS.spacing.xs)
+        self.content = NotePreviewTextEdit()
+        self.content.setPlaceholderText("Двойной клик — добавить текст")
+        self.content.setHtml(note_data.get("content_html", ""))
+        self.content.editRequested.connect(self.open_editor)
+        layout.addWidget(self.content)
+        self._height_timer = QTimer(self)
+        self._height_timer.setSingleShot(True)
+        self._height_timer.timeout.connect(self._sync_content_height)
+        self.content.textChanged.connect(self._schedule_content_height)
+        self.content.document().documentLayout().documentSizeChanged.connect(self._schedule_content_height)
+        self._update_collapse_button()
+        self._schedule_content_height()
+        self._edit_shortcut = QShortcut(QKeySequence("F2"), self)
+        self._edit_shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+        self._edit_shortcut.activated.connect(self.open_editor)
 
+
+    def _build_header(self, note_data: dict) -> QHBoxLayout:
         header = QHBoxLayout()
-        header.setSpacing(TOKENS.spacing.xs)
-
-        self.collapse_btn = QPushButton("\u25be" if not self._collapsed else "\u25b8")
+        header.setSpacing(3)
+        self.collapse_btn = QPushButton()
         self.collapse_btn.setFixedSize(24, 24)
         self.collapse_btn.setProperty("variant", "ghost")
+        self.collapse_btn.setProperty("role", "iconButton")
         self.collapse_btn.setCursor(Qt.PointingHandCursor)
         self.collapse_btn.clicked.connect(self.toggle_collapsed)
         header.addWidget(self.collapse_btn)
 
-        self.title_input = QLineEdit()
-        self.title_input.setText(note_data.get("title", ""))
-        self.title_input.setPlaceholderText("Заголовок...")
+        self.title_input = QLineEdit(note_data.get("title", ""))
+        self.title_input.setReadOnly(True)
+        self.title_input.setPlaceholderText("Без заголовка")
         self.title_input.setMinimumWidth(0)
         self.title_input.setProperty("role", "noteTitleInput")
-        self.title_input.textChanged.connect(self._on_changed)
-        header.addWidget(self.title_input)
+        self.title_input.setToolTip("Двойной клик — редактировать заметку")
+        self.title_input.setAccessibleName("Заголовок заметки")
+        self.title_input.installEventFilter(self)
+        header.addWidget(self.title_input, 1)
 
         self.delete_btn = QPushButton("✕")
         self.delete_btn.setFixedSize(24, 24)
         self.delete_btn.setProperty("variant", "danger")
+        self.delete_btn.setProperty("role", "iconButton")
         self.delete_btn.setCursor(Qt.PointingHandCursor)
         self.delete_btn.setToolTip("Удалить заметку")
+        self.delete_btn.setAccessibleName("Удалить заметку")
         self.delete_btn.clicked.connect(lambda: self.deleteRequested.emit(self.note_id))
         header.addWidget(self.delete_btn)
+        return header
 
-        layout.addLayout(header)
-
-        self.content = SpoilerTextEdit()
-        self.content.setPlaceholderText("Текст заметки...")
-        self.content.setMinimumHeight(0)
-        self.content.setMaximumHeight(NOTE_CONTENT_MAX_HEIGHT)
-        self.content.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._content_v_scroll_policy = Qt.ScrollBarAsNeeded
-        self.content.setVerticalScrollBarPolicy(self._content_v_scroll_policy)
-        self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        content_html = note_data.get("content_html", "")
-        if content_html:
-            self.content.setHtml(content_html)
-        self.content.textChanged.connect(self._on_changed)
-        layout.addWidget(self.content)
-
-        self.setLayout(layout)
-
-        self._change_timer = QTimer(self)
-        self._change_timer.setSingleShot(True)
-        self._change_timer.setInterval(500)
-        self._change_timer.timeout.connect(lambda: self.changed.emit(self.note_id))
-
-        self._toggle_animation = QPropertyAnimation(self.content, b"maximumHeight", self)
-        self._toggle_animation.setDuration(NOTE_TOGGLE_DURATION_MS)
-        self._toggle_animation.setEasingCurve(QEasingCurve.InOutCubic)
-        self._toggle_animation.valueChanged.connect(self._on_toggle_step)
-        self._toggle_animation.finished.connect(self._on_toggle_finished)
-        if self._app is not None:
-            self._app.installEventFilter(self)
-
-        if self._collapsed:
-            self.content.setMaximumHeight(0)
-            self.content.hide()
-        else:
-            QTimer.singleShot(0, self._sync_content_height)
-
-    def closeEvent(self, event):
-        if self._app is not None:
-            self._app.removeEventFilter(self)
-        super().closeEvent(event)
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.MouseButtonPress and isinstance(event, QMouseEvent):
-            if self.content.has_revealed_spoilers():
-                local_pos = self.mapFromGlobal(event.globalPosition().toPoint())
-                if not self.rect().contains(local_pos):
-                    self.content.remask_revealed_spoilers()
-        elif event.type() == QEvent.WindowDeactivate and self.content.has_revealed_spoilers():
-            self.content.remask_revealed_spoilers()
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if obj is self.title_input and event.type() == QEvent.MouseButtonDblClick:
+            if event.button() == Qt.LeftButton:
+                self.open_editor()
+                return True
         return super().eventFilter(obj, event)
 
-    def _on_changed(self):
-        if not self._collapsed and self._toggle_animation.state() != QAbstractAnimation.Running:
-            self._sync_content_height()
-        self._change_timer.start()
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            self.open_editor()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
-    def toggle_collapsed(self):
+    def toggle_collapsed(self) -> None:
         self._collapsed = not self._collapsed
-        self.collapse_btn.setText("\u25b8" if self._collapsed else "\u25be")
-        self._start_toggle_animation()
+        self._update_collapse_button()
+        cursor = self.content.textCursor()
+        cursor.setPosition(0)
+        self.content.setTextCursor(cursor)
+        self.content.verticalScrollBar().setValue(0)
+        self._sync_content_height()
         self.changed.emit(self.note_id)
 
-    def _target_content_height(self) -> int:
-        doc_height = int(round(self.content.document().size().height()))
-        chrome_height = self.content.frameWidth() * 2 + TOKENS.spacing.md
-        target = doc_height + chrome_height
-        return max(NOTE_CONTENT_MIN_HEIGHT, min(NOTE_CONTENT_MAX_HEIGHT, target))
+    def _update_collapse_button(self) -> None:
+        self.collapse_btn.setText("▸" if self._collapsed else "▾")
+        label = "Развернуть полностью" if self._collapsed else "Свернуть до 5 строк"
+        self.collapse_btn.setToolTip(label)
+        self.collapse_btn.setAccessibleName(label)
 
-    def _sync_content_height(self):
+    def _schedule_content_height(self, _size: QSizeF | None = None) -> None:
+        self._height_timer.start(0)
+
+    def _target_content_height(self) -> int:
+        document = self.content.document()
+        height = document.size().height()
         if self._collapsed:
-            return
+            remaining = NOTE_PREVIEW_LINES
+            block = document.begin()
+            while block.isValid():
+                text_layout = block.layout()
+                count = text_layout.lineCount()
+                if count >= remaining:
+                    line = text_layout.lineAt(remaining - 1)
+                    bounds = document.documentLayout().blockBoundingRect(block)
+                    height = min(height, bounds.top() + line.y() + line.height())
+                    break
+                remaining -= count
+                block = block.next()
+        chrome = self.content.height() - self.content.viewport().height()
+        return max(self.content.fontMetrics().height() + 8, ceil(height) + chrome)
+
+    def _sync_content_height(self) -> None:
         target = self._target_content_height()
-        if self.content.maximumHeight() != target:
-            self.content.setMaximumHeight(target)
-            self.adjustSize()
+        if self.content._display_height != target:
+            self.content._display_height = target
+            self.content.setMinimumHeight(target)
+            self.content.updateGeometry()
             self.updateGeometry()
             self.layoutChanged.emit()
-
-    def _start_toggle_animation(self):
-        self._toggle_animation.stop()
-        self._set_content_scrollbars(visible=False)
         if self._collapsed:
-            if not self.content.isVisible():
-                self.content.show()
-            start = max(0, self.content.height())
-            if start == 0:
-                start = self._target_content_height()
-            end = 0
-        else:
-            self.content.show()
-            start = max(0, self.content.maximumHeight())
-            end = self._target_content_height()
-            self.content.refresh_overlay_now()
-        self.content.setMaximumHeight(start)
-        self._toggle_animation.setStartValue(start)
-        self._toggle_animation.setEndValue(end)
-        self._toggle_animation.start()
+            self.content.verticalScrollBar().setValue(0)
 
-    def _on_toggle_step(self, _value):
-        self.adjustSize()
-        self.updateGeometry()
-        self.layoutChanged.emit()
+    def open_editor(self, position: int = 0) -> NoteEditorPopup:
+        if self._editor is not None:
+            self._editor.raise_()
+            self._editor.content.setFocus()
+            return self._editor
+        active = QApplication.activePopupWidget()
+        if isinstance(active, NoteEditorPopup):
+            active.close()
+        editor = NoteEditorPopup(self.get_data(), self)
+        self._editor = editor
+        editor.edited.connect(self._on_editor_edited)
+        editor.dismissed.connect(self._on_editor_dismissed)
+        screen = self.screen().availableGeometry()
+        origin = self.mapToGlobal(QPoint(0, 0))
+        x = max(screen.left(), min(origin.x(), screen.right() - editor.width() + 1))
+        y = max(screen.top(), min(origin.y(), screen.bottom() - editor.height() + 1))
+        editor.move(x, y)
+        editor.show()
+        cursor = editor.content.textCursor()
+        cursor.setPosition(min(position, editor.content.document().characterCount() - 1))
+        editor.content.setTextCursor(cursor)
+        editor.content.setFocus()
+        return editor
 
-    def _on_toggle_finished(self):
-        if self._collapsed:
-            self.content.setMaximumHeight(0)
-            self.content.hide()
-            self._set_content_scrollbars(visible=False)
-        else:
-            self.content.show()
-            self._sync_content_height()
-            self._set_content_scrollbars(visible=True)
-        self.adjustSize()
-        self.updateGeometry()
-        self.layoutChanged.emit()
+    def _on_editor_edited(self, title: str, content_html: str) -> None:
+        title_blocker = QSignalBlocker(self.title_input)
+        self.title_input.setText(title)
+        self.content.setHtml(content_html)
+        del title_blocker
+        self._sync_content_height()
+        self.changed.emit(self.note_id)
 
-    def _set_content_scrollbars(self, visible: bool):
-        self.content.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        if visible:
-            self.content.setVerticalScrollBarPolicy(self._content_v_scroll_policy)
-        else:
-            self.content.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    def _on_editor_dismissed(self) -> None:
+        editor = self._editor
+        self._editor = None
+        if editor is not None:
+            editor.deleteLater()
 
     def get_data(self) -> dict:
-        self.content.remask_revealed_spoilers()
+        if self._editor is not None:
+            self._editor.flush_changes()
         return {
             "id": self.note_id,
             "title": self.title_input.text(),
-            "content_html": self.content.toHtml(),
+            "content_html": self.content.persisted_html(),
             "collapsed": self._collapsed,
         }
 
@@ -624,6 +841,9 @@ class NotesWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cards: list[NoteCard] = []
+        self._reflow_timer = QTimer(self)
+        self._reflow_timer.setSingleShot(True)
+        self._reflow_timer.timeout.connect(self._reflow_cards)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(*TOKENS.layout.content_margins)
@@ -674,23 +894,27 @@ class NotesWidget(QWidget):
             "collapsed": False,
         }
         card = self._create_card(note_data)
-        card.title_input.setFocus()
+        card.open_editor().title_input.setFocus()
         self.notesChanged.emit()
 
     def _create_card(self, note_data: dict) -> NoteCard:
         card = NoteCard(note_data, self.cards_container)
         card.changed.connect(self._on_card_changed)
-        card.layoutChanged.connect(self._reflow_cards)
+        card.layoutChanged.connect(self._schedule_reflow)
         card.deleteRequested.connect(self._delete_note)
         self._cards.append(card)
         self.cards_layout.addWidget(card)
         return card
 
     def _on_card_changed(self, _note_id: str):
-        self._reflow_cards()
+        self._schedule_reflow()
         self.notesChanged.emit()
 
+    def _schedule_reflow(self) -> None:
+        self._reflow_timer.start(0)
+
     def _reflow_cards(self):
+        self._reflow_timer.stop()
         self.cards_layout.invalidate()
         self.cards_layout.activate()
         viewport_width = max(1, self.scroll_area.viewport().width())
@@ -699,11 +923,13 @@ class NotesWidget(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._reflow_cards()
+        self._schedule_reflow()
 
     def _delete_note(self, note_id: str):
         for card in self._cards:
             if card.note_id == note_id:
+                if card._editor is not None:
+                    card._editor.close()
                 self._cards.remove(card)
                 self.cards_layout.removeWidget(card)
                 card.deleteLater()
@@ -713,6 +939,8 @@ class NotesWidget(QWidget):
 
     def _clear_cards(self):
         for card in self._cards:
+            if card._editor is not None:
+                card._editor.close()
             self.cards_layout.removeWidget(card)
             card.deleteLater()
         self._cards.clear()

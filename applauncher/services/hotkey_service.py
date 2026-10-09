@@ -9,6 +9,8 @@ from ctypes import wintypes
 
 from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject, Signal
 
+from .local_hotkeys import split_hotkey_text
+
 logger = logging.getLogger(__name__)
 
 WM_HOTKEY = 0x0312
@@ -253,7 +255,7 @@ class HotkeyService(QObject):
         return hotkey_id
 
     def _parse_windows_hotkey(self, hotkey: str) -> tuple[int, int] | None:
-        parts = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
+        parts = [part.strip().lower() for part in split_hotkey_text(hotkey)]
         if len(parts) < 2:
             return None
         key_name = parts[-1]
@@ -286,6 +288,7 @@ class HotkeyService(QObject):
             "pgdown": "pagedown",
             "return": "enter",
             "spacebar": "space",
+            "+": "plus",
             "\u043f\u0440\u043e\u0431\u0435\u043b": "space",  # "??????"
             "\u0443\u0434\u0430\u043b\u0438\u0442\u044c": "delete",  # "???????"
             "\u0432\u0441\u0442\u0430\u0432\u043a\u0430": "insert",  # "???????"
@@ -343,11 +346,16 @@ class HotkeyService(QObject):
         self.hotkey_activated.emit()
 
     def _normalize_keyboard_hotkey(self, hotkey: str) -> str:
-        return "+".join(part.strip().lower() for part in hotkey.split("+") if part.strip())
+        # The `keyboard` library uses '+' as its own combo delimiter, so a
+        # literal '+' key must be spelled "plus" to avoid ambiguity.
+        return "+".join(
+            "plus" if part.strip() == "+" else part.strip().lower()
+            for part in split_hotkey_text(hotkey)
+        )
 
     def _normalize_pynput_hotkey(self, hotkey: str) -> str:
         parts = []
-        for part in hotkey.split("+"):
+        for part in split_hotkey_text(hotkey):
             key = part.strip().lower()
             if not key:
                 continue

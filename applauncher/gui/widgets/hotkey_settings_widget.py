@@ -4,9 +4,6 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
-from ..dialogs.hotkey_capture_dialog import HotkeyCaptureDialog
-
-
 class HotkeySettingsWidget(QWidget):
     hotkeyChanged = Signal(str)
 
@@ -38,6 +35,9 @@ class HotkeySettingsWidget(QWidget):
         self.hotkey_label.setText(hotkey)
 
     def _on_change_clicked(self) -> None:
+        # Dialogs also import this widget; defer the import until interaction.
+        from ..dialogs.hotkey_capture_dialog import HotkeyCaptureDialog
+
         dialog = HotkeyCaptureDialog(self, current_hotkey=self._current_hotkey)
         if dialog.exec() and dialog.selected_hotkey:
             self.set_hotkey(dialog.selected_hotkey)

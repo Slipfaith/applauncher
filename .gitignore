@@ -27,6 +27,7 @@ ENV/
 # =========================
 build/
 dist/
+installer/Output/
 *.egg-info/
 .eggs/
 *.egg

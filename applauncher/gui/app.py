@@ -157,7 +157,7 @@ class AppLauncher(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("mainWindow")
-        self.setMinimumSize(0, 0)
+        self.setMinimumSize(*TOKENS.sizes.window_min)
         self.setAcceptDrops(True)
 
         self.service = LauncherService()
@@ -266,6 +266,8 @@ class AppLauncher(QMainWindow):
         self.section_tabs.addTab("Буфер обмена")
         self.section_tabs.setMovable(False)
         self.section_tabs.setExpanding(False)
+        self.section_tabs.setElideMode(Qt.ElideRight)
+        self.section_tabs.setUsesScrollButtons(True)
         self.section_tabs.currentChanged.connect(self.on_section_changed)
         section_layout.addWidget(self.section_tabs)
 
@@ -316,6 +318,7 @@ class AppLauncher(QMainWindow):
 
         self.add_group_btn = QPushButton("+")
         self.add_group_btn.setProperty("variant", "secondary")
+        self.add_group_btn.setProperty("role", "iconButton")
         self.add_group_btn.setFixedSize(28, 28)
         self.add_group_btn.setToolTip("Добавить подвкладку")
         self.add_group_btn.clicked.connect(self.add_group)
@@ -552,7 +555,7 @@ class AppLauncher(QMainWindow):
         QMessageBox.information(
             self,
             "О программе",
-            "version: 2.1\n from Sha by slipfaith",
+            "version: 2.2\n from Sha by slipfaith",
         )
 
     def closeEvent(self, event):

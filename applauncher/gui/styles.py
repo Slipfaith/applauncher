@@ -214,9 +214,12 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         border-radius: {radii.lg}px;
         padding: {spacing.xs}px {spacing.lg}px;
         margin-right: {spacing.xs}px;
+        font-weight: {typography.weight_regular};
+    }}
+
+    QTabBar#groupTabs::tab {{
         min-width: {tokens.sizes.tab_min_width}px;
         max-width: {tokens.sizes.tab_min_width}px;
-        font-weight: {typography.weight_semibold};
     }}
 
     QTabBar::tab:selected {{
@@ -339,6 +342,10 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
         font-size: {typography.font_size_md}px;
     }}
 
+    QPushButton[role="iconButton"] {{
+        padding: 0px;
+    }}
+
     QPushButton[role="appTile"] {{
         background-color: {colors.surface};
         border-radius: {radii.lg}px;
@@ -449,6 +456,21 @@ def build_stylesheet(tokens: DesignTokens = TOKENS) -> str:
     QScrollArea {{
         background: transparent;
         border: none;
+    }}
+
+    QDialog#noteEditorPopup {{
+        background: {colors.surface};
+        border: 1px solid {colors.border};
+        border-radius: {radii.lg}px;
+    }}
+
+    QPushButton[role="noteFormatButton"] {{
+        padding: 0px;
+    }}
+
+    QPushButton[role="noteFormatButton"]:checked {{
+        background: {colors.accent_soft};
+        border-color: {colors.accent};
     }}
 
     QWidget[role="noteCard"] {{

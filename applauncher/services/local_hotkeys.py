@@ -55,6 +55,8 @@ _KEY_ALIASES = {
     "page down": "pgdown",
     "return": "enter",
     "enter": "enter",
+    "+": "plus",
+    "plus": "plus",
 }
 _DISPLAY_ALIASES = {
     "ctrl": "Ctrl",
@@ -67,7 +69,26 @@ _DISPLAY_ALIASES = {
     "pgup": "PgUp",
     "pgdown": "PgDown",
     "enter": "Enter",
+    "plus": "+",
 }
+
+
+def split_hotkey_text(raw_text: str | None) -> list[str]:
+    """Split a hotkey combo string on '+'.
+
+    A literal '+' key collides with the '+' delimiter (e.g. "Ctrl++"),
+    which would otherwise produce a trailing empty token that naive
+    splitting silently drops. Treat a trailing "++" as "<modifiers>" plus
+    an explicit '+' key instead.
+    """
+    text = (raw_text or "").strip()
+    if not text:
+        return []
+    if text == "+":
+        return ["+"]
+    if text.endswith("++"):
+        return split_hotkey_text(text[:-1]) + ["+"]
+    return [part for part in text.split("+") if part.strip()]
 
 
 def normalize_hotkey_text(hotkey: str | None) -> str:
@@ -78,7 +99,7 @@ def normalize_hotkey_text(hotkey: str | None) -> str:
 
     modifiers: list[str] = []
     key_name: str | None = None
-    for raw_part in raw_text.split("+"):
+    for raw_part in split_hotkey_text(raw_text):
         part = raw_part.strip().lower()
         if not part:
             continue

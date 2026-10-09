@@ -28,9 +28,18 @@ jobs:
       - name: Build exe
         run: pyinstaller main.spec
 
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\applauncher.iss'
+        shell: pwsh
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          files: dist/applauncher.exe
+          files: |
+            dist/applauncher.exe
+            installer/Output/*.exe
           generate_release_notes: true

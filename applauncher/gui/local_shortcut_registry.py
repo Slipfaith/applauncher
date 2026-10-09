@@ -92,9 +92,13 @@ class LocalShortcutRegistry:
     def _register_global_hotkey(self, hotkey: str, item: dict) -> bool:
         if self._keyboard_module is None:
             return False
-        key_combo = "+".join(
-            part.strip().lower() for part in hotkey.split("+") if part.strip()
-        )
+        # normalize_hotkey_text handles a literal '+' key (e.g. "Ctrl++")
+        # correctly, unlike a naive split("+") which drops it as an empty
+        # token; its canonical "plus" spelling is also what the `keyboard`
+        # library expects for that key.
+        key_combo = normalize_hotkey_text(hotkey)
+        if not key_combo:
+            return False
         try:
             hotkey_id = self._keyboard_module.add_hotkey(
                 key_combo,
