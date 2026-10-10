@@ -1,0 +1,29 @@
+3222 INFO: PyInstaller: 6.17.0, contrib hooks: 2025.11
+3224 INFO: Python: 3.13.5
+4073 INFO: Platform: Windows-10-10.0.19045-SP0
+4073 INFO: Python environment: E:\PythonProjects\applauncher\.venv
+4087 INFO: Module search paths (PYTHONPATH):
+['E:\\PythonProjects\\applauncher',
+ 'E:\\PythonProjects\\applauncher\\.venv\\Scripts\\python313.zip',
+ 'C:\\Program Files\\Python313\\DLLs',
+ 'C:\\Program Files\\Python313\\Lib',
+ 'C:\\Program Files\\Python313',
+ 'E:\\PythonProjects\\applauncher\\.venv',
+ 'E:\\PythonProjects\\applauncher\\.venv\\Lib\\site-packages',
+ 'E:\\PythonProjects\\applauncher']
+23211 INFO: Appending 'datas' from .spec
+23213 INFO: checking Analysis
+23619 INFO: checking PYZ
+23748 INFO: checking PKG
+23811 INFO: Bootloader E:\PythonProjects\applauncher\.venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+23811 INFO: checking EXE
+23811 INFO: Building EXE because EXE-00.toc is non existent
+23811 INFO: Building EXE from EXE-00.toc
+23819 INFO: Copying bootloader EXE to E:\PythonProjects\applauncher\dist\applauncher.exe
+25784 INFO: Copying icon to EXE
+26115 INFO: Copying 0 resources to EXE
+26116 INFO: Embedding manifest in EXE
+26831 INFO: Appending PKG archive to EXE
+27533 INFO: Fixing EXE headers
+33121 INFO: Building EXE from EXE-00.toc completed successfully.
+33145 INFO: Build complete! The results are available in: E:\PythonProjects\applauncher\dist

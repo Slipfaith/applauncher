@@ -24,6 +24,16 @@
 !line_icons_smoke.py
 !verify_theme_bundle.ps1
 !verify_final_integrity.py
+!MASTER_RELEASE_2026-10-10.md
+!master-release-tests-20261010.txt
+!master-release-build-retry-20261010.txt
+!MASTER_CLEANUP_RESULT_2026-10-10.json
+!master-release-offscreen-20261010/
+master-release-offscreen-20261010/*
+!master-release-offscreen-20261010/verification.json
+!master-release-windows-20261010/
+master-release-windows-20261010/*
+!master-release-windows-20261010/verification.json
 
 !exe/
 exe/*

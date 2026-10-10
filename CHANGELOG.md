@@ -17,8 +17,8 @@
 
 ### Проверка и сборка
 
-- Регрессионный набор расширен до **151 теста**.
-- [Текущий EXE](gui/implementation_review/exe/applauncher.exe) и [SHA-256](gui/implementation_review/exe/SHA256SUMS) обновляются из сборки основной ветки.
+- На объединённой ветке прошли **151 тест**; готовый EXE прошёл проверку обеих тем, шрифтов и иконок через Windows и offscreen без предупреждений.
+- [Текущий EXE](gui/implementation_review/exe/applauncher.exe) и [SHA-256](gui/implementation_review/exe/SHA256SUMS) обновлены из сборки основной ветки. Размер: 46 844 223 байта.
 - [Отчёт проверки основной ветки](gui/implementation_review/MASTER_RELEASE_2026-10-10.md).
 
 ## 2026-10-10 — Редизайн, переключение темы и иконки LINE
