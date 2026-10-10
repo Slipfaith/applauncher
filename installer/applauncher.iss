@@ -3,12 +3,16 @@
 ; Then compile this script (from this folder or via the Inno Setup IDE):
 ;   ISCC.exe applauncher.iss
 ; The installer is written to installer\Output\.
+; To package another build, pass /DMyAppSource=<absolute exe path> to ISCC.
 
 #define MyAppName "AppLauncher"
 #define MyAppVersion "2.2"
 #define MyAppPublisher "Slipfaith"
 #define MyAppURL "https://github.com/Slipfaith/applauncher"
 #define MyAppExeName "applauncher.exe"
+#ifndef MyAppSource
+  #define MyAppSource "..\dist\applauncher.exe"
+#endif
 
 [Setup]
 ; Do not change this GUID once released - it identifies the app across
@@ -30,10 +34,11 @@ SetupIconFile=..\sliplaun.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-CloseApplications=force
+CloseApplications=yes
 RestartApplications=no
 
 [Languages]
@@ -49,7 +54,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "{cm:AutostartTask,{#MyAppName}}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\applauncher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyAppSource}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

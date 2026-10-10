@@ -169,3 +169,38 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 - Изолированно отрисованы AppButton и NotesWidget в light/dark на offscreen-платформе при контейнере `680×440`; Onest и JetBrains Mono зарегистрировались. Это smoke отрисовки компонентов, а не визуальная приёмка полного окна.
 - Полный pytest не выполнен: `.venv\Scripts\python.exe` вернул `No module named pytest`. Зависимости при подготовке плана не устанавливались.
 - Полное окно, реальный Windows DPI, drag-and-drop из внешних приложений, системная смена темы и свежий EXE остаются непроверенными.
+
+## Code Review
+
+### 2026-10-10 — полный код проекта
+
+**Code review complete.** 2 `decision-needed`, 16 `patch`, 0 `defer`, 0 rejected. Проверено 86 файлов, 18 733 строки. Полный набор тестов: 125 passed. Рабочие исходники не исправлялись. Подробности, воспроизведения и все 25 исходных вердиктов: [CODE_REVIEW_BMAD_2026-10-10.md](implementation_review/CODE_REVIEW_BMAD_2026-10-10.md).
+
+- [x] [Review][Decision] R02: одинаковый путь не должен идентифицировать разные плитки — выбрать устойчивые ID с совместимостью старой конфигурации или запрет новых дубликатов без потери существующих записей. [applauncher/repository.py:49]
+- [x] [Review][Decision] R08: сохранить WorkingDirectory импортированного ярлыка — выбрать хранение цели/args/cwd или запуск сохранённого оригинального .lnk. [applauncher/services/validation.py:160]
+- [x] [Review][Patch] R01: сохранить повреждённый исходник и блокировать автоматическую запись после ошибки загрузки. [applauncher/services/launcher_service.py:45]
+- [x] [Review][Patch] R03: не сбрасывать args и favorite при обычном редактировании. [applauncher/gui/app.py:741]
+- [x] [Review][Patch] R04: восстановить кадрирование после загрузки изображения. [applauncher/gui/dialogs/__init__.py:153]
+- [x] [Review][Patch] R05: проверять тип элементов конфигурации до использования полей. [applauncher/services/launcher_service.py:50]
+- [x] [Review][Patch] R06: обрабатывать UnicodeError при чтении конфигурации и бэкапов. [applauncher/config.py:140]
+- [x] [Review][Patch] R07: корректно разбирать Windows-аргументы ярлыка без буквальных кавычек. [applauncher/services/validation.py:114]
+- [x] [Review][Patch] R09: не применять устаревшую автоиконку поверх пользовательской. [applauncher/gui/icon_service.py:146]
+- [x] [Review][Patch] R10: сохранять исходные отступы и переводы строк в истории буфера. [applauncher/services/clipboard_service.py:33]
+- [x] [Review][Patch] R11: сохранить текст записи до QMenu.exec, не обращаться к удалённому item. [applauncher/gui/widgets/clipboard_history_widget.py:90]
+- [x] [Review][Patch] R12: отправлять запрос активации даже без аргументов запуска. [applauncher/gui/app.py:1784]
+- [x] [Review][Patch] R13: перенести файловое копирование из GUI в worker с сохранением payload до завершения. [applauncher/gui/app.py:983]
+- [x] [Review][Patch] R14: создавать независимые вложенные контейнеры DEFAULT_CONFIG. [applauncher/config.py:137]
+- [x] [Review][Patch] R15: включить создание каталога в контракт ошибок сохранения. [applauncher/config.py:230]
+- [x] [Review][Patch] G01: проверить drop через полное окно до появления файла на диске. [tests/test_redesign_widgets.py:145]
+- [x] [Review][Patch] G02: проверить реальную запись последних заметок и истории при shutdown до debounce. [tests/ui_fixture.py:85]
+- [x] [Review][Patch] G03: запускать свежий dist/applauncher.exe --verify-design перед release. [.github/workflows/release.yml:31]
+
+#### Rejected
+
+Нет.
+
+### 2026-10-10 — исправления завершены
+
+R01–R15 и G01–G03 закрыты. Выбраны устойчивые ID без слияния дубликатов и сохранение цели/args/working_dir ярлыка. Заключительное независимое ревью выявило блокирование GUI при drain на выходе; оно исправлено и проверено с активными copy/icon worker. Финальный набор: **151 passed, 0 failed, 0 skipped**. Свежий итоговый EXE прошёл frozen-проверки offscreen и windows. Коммит и публикация не выполнялись.
+
+Результаты и ограничения: [FIX_REVIEW_VERIFICATION_2026-10-10.md](implementation_review/FIX_REVIEW_VERIFICATION_2026-10-10.md). Итоговая сборка: [applauncher.exe](../dist/review-fixes-20261010-final/applauncher.exe).

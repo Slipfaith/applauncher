@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QCoreApplication, QEventLoop, QObject, QRunnable, QThreadPool, Signal, Slot
 
 from .icons import extract_icon_with_fallback
 from .tile_image.utils import is_valid_png_file
@@ -13,20 +13,24 @@ from ..repository import AppRepository
 
 logger = logging.getLogger(__name__)
 
+DRAIN_WAIT_SLICE_MS = 10
+
 
 class IconExtractionSignals(QObject):
-    finished = Signal(str, str)
+    finished = Signal(object, str)
 
 
 class IconExtractionWorker(QRunnable):
-    def __init__(self, path: str):
+    def __init__(self, path: str, identity: str, generation: int):
         super().__init__()
         self.path = path
+        self.identity = identity
+        self.generation = generation
         self.signals = IconExtractionSignals()
 
     def run(self):  # pragma: no cover - visual side effects
         icon_path = extract_icon_with_fallback(self.path)
-        self.signals.finished.emit(self.path, icon_path or "")
+        self.signals.finished.emit(self, icon_path or "")
 
 
 class IconService(QObject):
@@ -37,25 +41,31 @@ class IconService(QObject):
         self._repository = repository
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
         self._tasks: list[IconExtractionWorker] = []
+        self._generations: dict[str, int] = {}
 
     def start_extraction(self, app_data: dict | None) -> None:
-        if not app_data or app_data.get("icon_path"):
+        if not app_data:
+            return
+        identity = app_data.get("id", app_data["path"])
+        generation = self._generations.get(identity, 0) + 1
+        self._generations[identity] = generation
+        if app_data.get("icon_path") or app_data.get("custom_icon"):
             return
         if app_data.get("type") == "lnk":
-            if self._repository.update_icon(app_data["path"], app_data["path"]):
-                self.iconUpdated.emit(app_data["path"], app_data["path"])
+            if self._repository.update_icon(identity, app_data["path"]):
+                self.iconUpdated.emit(identity, app_data["path"])
             return
         if app_data.get("type") != "exe":
             return
-        worker = IconExtractionWorker(app_data["path"])
-        worker.signals.finished.connect(
-            lambda path, icon, w=worker: self._on_icon_extracted(path, icon, w)
-        )
+        worker = IconExtractionWorker(app_data["path"], identity, generation)
+        worker.signals.finished.connect(self._on_worker_finished)
         self._tasks.append(worker)
         self._thread_pool.start(worker)
 
     def cleanup_icon_cache(self, icon_path: str | None) -> None:
         if not icon_path:
+            return
+        if any(app.get("icon_path") == icon_path for app in self._repository.apps):
             return
         try:
             icon_file = Path(icon_path).resolve()
@@ -96,10 +106,10 @@ class IconService(QObject):
             try:
                 resolved_icon_path = Path(icon_path).resolve()
             except Exception:
-                self._repository.update_icon(app["path"], "")
+                self._repository.update_icon(app["id"], "")
                 continue
             if resolved_icon_path in removed_paths:
-                self._repository.update_icon(app["path"], "")
+                self._repository.update_icon(app["id"], "")
 
         return len(removed_paths)
 
@@ -132,16 +142,33 @@ class IconService(QObject):
             try:
                 resolved_icon_path = Path(icon_path).resolve()
             except Exception:
-                self._repository.update_icon(app["path"], "")
+                self._repository.update_icon(app["id"], "")
                 continue
             if resolved_icon_path in removed_paths:
-                self._repository.update_icon(app["path"], "")
+                self._repository.update_icon(app["id"], "")
         return len(removed_paths)
+
+    @Slot(object, str)
+    def _on_worker_finished(self, worker: IconExtractionWorker, icon_path: str) -> None:
+        self._on_icon_extracted(worker.path, icon_path, worker)
+
+    def drain(self) -> None:
+        while True:
+            finished = self._thread_pool.waitForDone(DRAIN_WAIT_SLICE_MS)
+            QCoreApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+            if finished:
+                return
 
     def _on_icon_extracted(
         self, path: str, icon_path: str, worker: IconExtractionWorker | None = None
     ) -> None:
         if worker and worker in self._tasks:
             self._tasks.remove(worker)
-        if icon_path and self._repository.update_icon(path, icon_path):
-            self.iconUpdated.emit(path, icon_path)
+        identity = worker.identity if worker else path
+        app = self._repository.find_app(identity)
+        if app is None or app.get("path") != path or app.get("custom_icon") or app.get("icon_path"):
+            return
+        if worker and self._generations.get(identity) != worker.generation:
+            return
+        if icon_path and self._repository.update_icon(identity, icon_path):
+            self.iconUpdated.emit(identity, icon_path)

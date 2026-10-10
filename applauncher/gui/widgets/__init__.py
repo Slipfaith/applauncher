@@ -56,7 +56,7 @@ class AppButton(KeyboardButton):
     copyLinkRequested = Signal(object)
     assignHotkeyRequested = Signal(object)
     clearHotkeyRequested = Signal(object)
-    filesDroppedToFolder = Signal(object, list)
+    filesDroppedToFolder = Signal(object, object)
 
     def __init__(
         self,
@@ -399,7 +399,7 @@ class AppButton(KeyboardButton):
         self._animate_press(0.0, 90)
         drag = QDrag(self)
         mime = QMimeData()
-        mime.setData("application/x-applauncher-app", self.app_data["path"].encode("utf-8"))
+        mime.setData("application/x-applauncher-app", self.app_data.get("id", self.app_data["path"]).encode("utf-8"))
         drag.setMimeData(mime)
         drag.setPixmap(self.grab())
         drag.exec(Qt.MoveAction)
@@ -447,10 +447,12 @@ class AppButton(KeyboardButton):
         if not dropped_files.paths:
             super().dropEvent(event)
             return
+        payload = dropped_files.transfer()
         try:
-            self.filesDroppedToFolder.emit(self.app_data, dropped_files.paths)
+            self.filesDroppedToFolder.emit(self.app_data, payload)
         finally:
-            dropped_files.cleanup()
+            if not payload.claimed:
+                payload.cleanup()
         event.acceptProposedAction()
 
 
@@ -500,7 +502,7 @@ class AppListItem(QWidget):
     copyLinkRequested = Signal(object)
     assignHotkeyRequested = Signal(object)
     clearHotkeyRequested = Signal(object)
-    filesDroppedToFolder = Signal(object, list)
+    filesDroppedToFolder = Signal(object, object)
 
     def __init__(
         self,
@@ -595,7 +597,7 @@ class AppListItem(QWidget):
         self._dragging = True
         drag = QDrag(self)
         mime = QMimeData()
-        mime.setData("application/x-applauncher-app", self.app_data["path"].encode("utf-8"))
+        mime.setData("application/x-applauncher-app", self.app_data.get("id", self.app_data["path"]).encode("utf-8"))
         drag.setMimeData(mime)
         drag.setPixmap(self.grab())
         drag.exec(Qt.MoveAction)
@@ -634,10 +636,12 @@ class AppListItem(QWidget):
         if not dropped_files.paths:
             super().dropEvent(event)
             return
+        payload = dropped_files.transfer()
         try:
-            self.filesDroppedToFolder.emit(self.app_data, dropped_files.paths)
+            self.filesDroppedToFolder.emit(self.app_data, payload)
         finally:
-            dropped_files.cleanup()
+            if not payload.claimed:
+                payload.cleanup()
         event.acceptProposedAction()
 
     def show_context_menu(self, pos):

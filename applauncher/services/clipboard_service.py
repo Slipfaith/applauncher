@@ -25,8 +25,8 @@ class ClipboardService(QObject):
         return list(self._history)
 
     def add_entry(self, text: str) -> None:
-        cleaned = (text or "").strip()
-        if not cleaned:
+        cleaned = text or ""
+        if not cleaned.strip():
             return
         if any(entry_text == cleaned for entry_text, _, _ in self._history):
             return
@@ -41,8 +41,8 @@ class ClipboardService(QObject):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            text = str(entry.get("text") or "").strip()
-            if not text or text in seen:
+            text = entry.get("text") if isinstance(entry.get("text"), str) else ""
+            if not text.strip() or text in seen:
                 continue
             try:
                 timestamp = datetime.fromisoformat(str(entry.get("timestamp") or ""))
@@ -79,8 +79,8 @@ class ClipboardService(QObject):
         self.history_changed.emit(self.get_history())
 
     def copy_to_clipboard(self, text: str) -> None:
-        cleaned = (text or "").strip()
-        if not cleaned:
+        cleaned = text or ""
+        if not cleaned.strip():
             return
         self._ignore_next_change = True
         self._clipboard.setText(cleaned)

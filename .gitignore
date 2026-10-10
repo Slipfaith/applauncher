@@ -140,3 +140,10 @@ launcher_config.json
 
 # App icon required by main.spec and the Windows installer.
 !/sliplaun.ico
+
+# Local agent tooling and generated workflow snapshots.
+.agents/
+_bmad/
+_bmad-output/
+_bmad.setup-*/
+skills-lock.json

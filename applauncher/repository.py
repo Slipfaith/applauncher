@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Iterable, List, Optional
+from uuid import uuid4
 
 DEFAULT_GROUP = "Общее"
 DEFAULT_MACRO_GROUPS = [".vbs", ".vba", ".py"]
@@ -28,7 +29,10 @@ class AppRepository:
         return self._version
 
     def set_apps(self, apps: Iterable[dict]) -> None:
-        self.apps = [self._with_defaults(app) for app in apps]
+        self.apps = []
+        for app in apps:
+            if isinstance(app, dict):
+                self.apps.append(self._with_defaults(app))
         self._version += 1
 
     def add_app(self, app_data: dict) -> dict:
@@ -38,8 +42,9 @@ class AppRepository:
         return prepared
 
     def update_app(self, original_path: str, updated_data: dict) -> Optional[dict]:
+        target = self.find_app(original_path)
         for index, app in enumerate(self.apps):
-            if app["path"] == original_path:
+            if app is target:
                 merged = self._with_defaults(updated_data, app)
                 self.apps[index] = merged
                 self._version += 1
@@ -47,12 +52,20 @@ class AppRepository:
         return None
 
     def delete_app(self, app_path: str) -> bool:
-        original_len = len(self.apps)
-        self.apps = [app for app in self.apps if app["path"] != app_path]
-        if len(self.apps) != original_len:
+        target = self.find_app(app_path)
+        if target is not None:
+            self.apps.remove(target)
             self._version += 1
             return True
         return False
+
+    def find_app(self, identity: str) -> Optional[dict]:
+        """Resolve an ID, or a legacy path only when it is unambiguous."""
+        for app in self.apps:
+            if app["id"] == identity:
+                return app
+        matches = [app for app in self.apps if app.get("path") == identity]
+        return matches[0] if len(matches) == 1 else None
 
     def clear_apps(self) -> None:
         if self.apps:
@@ -88,20 +101,19 @@ class AppRepository:
         )
 
     def increment_usage(self, app_path: str) -> Optional[dict]:
-        for app in self.apps:
-            if app["path"] == app_path:
-                app["usage_count"] = app.get("usage_count", 0) + 1
-                self._version += 1
-                return app
-        return None
+        app = self.find_app(app_path)
+        if app is not None:
+            app["usage_count"] += 1
+            self._version += 1
+        return app
 
     def update_icon(self, app_path: str, icon_path: str) -> bool:
-        for app in self.apps:
-            if app["path"] == app_path:
-                app["icon_path"] = icon_path
-                self._version += 1
-                return True
-        return False
+        app = self.find_app(app_path)
+        if app is None:
+            return False
+        app["icon_path"] = icon_path
+        self._version += 1
+        return True
 
     def _with_defaults(self, app_data: dict, fallback: Optional[dict] = None) -> dict:
         prepared = {
@@ -109,33 +121,15 @@ class AppRepository:
             "group": fallback.get("group", self.default_group) if fallback else self.default_group,
         }
         if fallback:
-            prepared.update(
-                {
-                    k: v
-                    for k, v in fallback.items()
-                    if k
-                    in {
-                        "usage_count",
-                        "local_hotkey",
-                        "icon_path",
-                        "favorite",
-                        "args",
-                        "custom_icon",
-                        "raw_path",
-                        "source",
-                        "icon_frame_x",
-                        "icon_frame_y",
-                        "icon_frame_w",
-                        "icon_frame_h",
-                        "description",
-                        "disabled",
-                        "disabled_reason",
-                        "invalid",
-                        "invalid_reason",
-                    }
-                }
-            )
+            prepared.update(fallback)
         prepared.update(app_data)
+        identity = fallback["id"] if fallback else prepared.get("id")
+        if not isinstance(identity, str) or not identity.strip() or (
+            not fallback and any(app["id"] == identity for app in self.apps)
+        ):
+            identity = str(uuid4())
+        prepared["id"] = identity
+        prepared.setdefault("working_dir", "")
         prepared.setdefault("usage_count", 0)
         prepared.setdefault("group", self.default_group)
         prepared.setdefault("type", "exe")

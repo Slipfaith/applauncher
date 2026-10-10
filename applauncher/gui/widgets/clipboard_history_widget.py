@@ -83,15 +83,16 @@ class ClipboardHistoryWidget(QWidget):
         item = self.list_widget.itemAt(pos)
         if item is None:
             return
+        text = item.data(Qt.UserRole)
         menu = QMenu(self)
         pinned = bool(item.data(Qt.UserRole + 1))
         pin_action = menu.addAction("Открепить" if pinned else "Закрепить наверху")
         copy_action = menu.addAction("Копировать")
         selected = menu.exec(self.list_widget.viewport().mapToGlobal(pos))
         if selected == pin_action:
-            self.clipboard_service.toggle_pinned(item.data(Qt.UserRole))
+            self.clipboard_service.toggle_pinned(text)
         elif selected == copy_action:
-            self._copy_item(item)
+            self.clipboard_service.copy_to_clipboard(text)
 
     def _copy_item(self, item: QListWidgetItem) -> None:
         text = item.data(Qt.UserRole)

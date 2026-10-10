@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shlex
+import ctypes
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -112,12 +113,48 @@ def read_lnk_shortcut(file_path: str) -> dict | None:
 
 
 def _split_arguments(argument_line: str) -> list[str]:
+    """Parse Windows quoting with the native command-line parser."""
     if not argument_line:
         return []
+    count = ctypes.c_int()
+    parser = ctypes.windll.shell32.CommandLineToArgvW
+    parser.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+    parser.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argv = parser('applauncher ' + argument_line, ctypes.byref(count))
+    if not argv:
+        raise OSError("Cannot parse Windows arguments")
     try:
-        return shlex.split(argument_line, posix=False)
-    except ValueError:
-        return [argument_line]
+        return [argv[index] for index in range(1, count.value)]
+    finally:
+        free = ctypes.windll.kernel32.LocalFree
+        free.argtypes = [ctypes.c_void_p]
+        free.restype = ctypes.c_void_p
+        free(argv)
+
+
+def normalize_entry_fields(data: dict) -> dict:
+    """Normalize typed fields before validation or use in Qt widgets."""
+    data = dict(data)
+    for key in ("name", "path", "group", "type", "raw_path", "icon_path", "local_hotkey",
+                "working_dir", "description", "source", "disabled_reason", "invalid_reason"):
+        if key in data and not isinstance(data[key], str):
+            data[key] = ""
+    args = data.get("args", [])
+    data["args"] = [args] if isinstance(args, str) else (
+        [arg for arg in args if isinstance(arg, str)] if isinstance(args, list) else []
+    )
+    count = data.get("usage_count", 0)
+    data["usage_count"] = max(0, count) if isinstance(count, int) else 0
+    for key in ("favorite", "custom_icon", "disabled", "invalid"):
+        value = data.get(key, False)
+        data[key] = value if isinstance(value, bool) else (
+            value.lower() in {"true", "1", "yes", "on"} if isinstance(value, str) else False
+        )
+    for key, default in (("icon_frame_x", 0.0), ("icon_frame_y", 0.0),
+                         ("icon_frame_w", 1.0), ("icon_frame_h", 1.0)):
+        value = data.get(key, default)
+        data[key] = value if isinstance(value, (int, float)) and math.isfinite(value) and 0 <= value <= 1 else default
+    return data
 
 
 def _normalize_if_url(value: str) -> str:
@@ -161,14 +198,16 @@ def extract_shortcut_data(file_path: str) -> dict | None:
                 "type": "exe",
                 "path": target,
                 "args": _split_arguments(arguments),
+                "working_dir": lnk_data.get("working_dir", ""),
                 "icon_path": _extract_icon_path(lnk_data.get("icon", "")),
             }
     return None
 
 
 def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
-    if not data:
+    if not isinstance(data, dict) or not data:
         return None, None
+    data = normalize_entry_fields(data)
     name = (data.get("name") or "").strip()
     if not name:
         return None, "Укажите название элемента"
@@ -216,8 +255,9 @@ def validate_app_data(data: dict | None) -> tuple[dict | None, str | None]:
 
 
 def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
-    if not data:
+    if not isinstance(data, dict) or not data:
         return None, None
+    data = normalize_entry_fields(data)
     name = (data.get("name") or "").strip()
     if not name:
         return None, "Укажите название макроса"
@@ -250,8 +290,9 @@ def validate_macro_data(data: dict | None) -> tuple[dict | None, str | None]:
 
 
 def soft_validate_app_data(data: dict | None) -> dict | None:
-    if not data:
+    if not isinstance(data, dict):
         return None
+    data = normalize_entry_fields(data)
     validated, error = validate_app_data(dict(data))
     if not error and validated:
         validated["invalid"] = False
@@ -270,8 +311,8 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
     if isinstance(args, str):
         args = [args]
     fallback["args"] = args
-    fallback.setdefault("type", "exe")
-    fallback.setdefault("group", DEFAULT_GROUP)
+    fallback["type"] = fallback.get("type") or "exe"
+    fallback["group"] = fallback.get("group") or DEFAULT_GROUP
     fallback.setdefault("usage_count", 0)
     fallback.setdefault("local_hotkey", "")
     fallback.setdefault("favorite", False)
@@ -286,8 +327,9 @@ def soft_validate_app_data(data: dict | None) -> dict | None:
 
 
 def soft_validate_macro_data(data: dict | None) -> dict | None:
-    if not data:
+    if not isinstance(data, dict):
         return None
+    data = normalize_entry_fields(data)
     validated, error = validate_macro_data(dict(data))
     if not error and validated:
         validated["invalid"] = False
