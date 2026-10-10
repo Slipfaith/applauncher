@@ -47,7 +47,8 @@ class StubHotkeyService(QObject):
 
 
 @contextmanager
-def isolated_window(directory: Path, count: int = 200, tray: bool = False, theme: str | None = None):
+def isolated_window(directory: Path, count: int = 200, tray: bool = False, theme: str | None = None,
+                    real_persistence: bool = False, real_copy: bool = False):
     """Open the runtime window using only the supplied fixture directory."""
     import sys
     import applauncher.gui.app as runtime
@@ -82,11 +83,13 @@ def isolated_window(directory: Path, count: int = 200, tray: bool = False, theme
     clipboard = MemoryClipboard()
     with ExitStack() as stack:
         stack.enter_context(patch.object(runtime, "LauncherService", return_value=service))
-        stack.enter_context(patch.object(service, "persist_config", return_value=None))
+        if not real_persistence:
+            stack.enter_context(patch.object(service, "persist_config", return_value=None))
         stack.enter_context(patch.object(runtime, "HotkeyService", StubHotkeyService))
         stack.enter_context(patch.object(runtime.LocalShortcutRegistry, "_register_global_hotkey", return_value=False))
         stack.enter_context(patch.object(runtime, "LaunchService", return_value=Mock()))
-        stack.enter_context(patch.object(runtime, "FileTransferService", return_value=Mock()))
+        if not real_copy:
+            stack.enter_context(patch.object(runtime, "FileTransferService", return_value=Mock()))
         stack.enter_context(patch.object(QApplication, "clipboard", return_value=clipboard))
         stack.enter_context(patch.object(runtime.QSystemTrayIcon, "isSystemTrayAvailable", return_value=tray))
         stack.enter_context(patch.object(runtime.IconService, "cleanup_broken_png_cache", return_value=0))

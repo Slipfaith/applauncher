@@ -88,8 +88,10 @@ class LaunchService:
             return False, f"Файл не найден:\n{path_value}"
         try:
             args = app_data.get("args") or []
-            if args:
-                subprocess.Popen([path_value, *args])
+            working_dir = app_data.get("working_dir") or None
+            if args or working_dir:
+                options = {"cwd": working_dir} if working_dir else {}
+                subprocess.Popen([path_value, *args], **options)
             else:
                 if hasattr(os, "startfile"):
                     os.startfile(path_value)

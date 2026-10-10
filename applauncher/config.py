@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import sys
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
@@ -46,7 +47,7 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
 
     def normalize_groups(value: Any, default: list) -> list:
         if isinstance(value, list) and value:
-            return value
+            return list(dict.fromkeys(item for item in value if isinstance(item, str) and item.strip())) or default.copy()
         return default.copy()
 
     def normalize_window_size(value: Any) -> list[int] | None:
@@ -83,7 +84,15 @@ def _normalize_loaded(data: Any) -> Dict[str, Any]:
     macro_groups = normalize_groups(data.get("macro_groups"), DEFAULT_CONFIG["macro_groups"])
     macro_view_mode = data.get("macro_view_mode", DEFAULT_CONFIG["macro_view_mode"])
     global_hotkey = data.get("global_hotkey", DEFAULT_CONFIG["global_hotkey"])
+    if not isinstance(global_hotkey, str):
+        global_hotkey = DEFAULT_CONFIG["global_hotkey"]
     window_opacity = data.get("window_opacity", DEFAULT_CONFIG["window_opacity"])
+    if not isinstance(window_opacity, (int, float)) or not 0.1 <= window_opacity <= 1:
+        window_opacity = DEFAULT_CONFIG["window_opacity"]
+    if view_mode not in ("grid", "list"):
+        view_mode = DEFAULT_CONFIG["view_mode"]
+    if macro_view_mode not in ("grid", "list"):
+        macro_view_mode = DEFAULT_CONFIG["macro_view_mode"]
     theme_mode = data.get("theme_mode", DEFAULT_CONFIG["theme_mode"])
     if not isinstance(theme_mode, str) or theme_mode not in ("auto", "light", "dark"):
         theme_mode = DEFAULT_CONFIG["theme_mode"]
@@ -126,7 +135,7 @@ def _load_backup(path: str) -> tuple[Dict[str, Any], Path] | None:
     for backup_path in _backup_candidates(path):
         try:
             return _normalize_loaded(_load_json(str(backup_path))), backup_path
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, UnicodeError, OSError):
             logger.warning("Пропущен поврежденный бэкап: %s", backup_path)
     return None
 
@@ -134,11 +143,11 @@ def _load_backup(path: str) -> tuple[Dict[str, Any], Path] | None:
 def load_config(path: str) -> Dict[str, Any]:
     """Load configuration from JSON with validation."""
     if not os.path.exists(path):
-        return DEFAULT_CONFIG.copy()
+        return deepcopy(DEFAULT_CONFIG)
 
     try:
         data = _load_json(path)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeError) as exc:
         backup = _load_backup(path)
         if backup is not None:
             restored, backup_path = backup
@@ -227,8 +236,11 @@ def _resolve_portable_dir() -> Path | None:
 def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None:
     """Persist configuration atomically with optional backup."""
     directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
+    try:
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        raise ConfigError("Не удалось создать каталог конфигурации") from exc
     if backup and os.path.exists(path):
         try:
             # Never replace a good backup with a damaged current file.
@@ -244,7 +256,7 @@ def save_config(path: str, payload: Dict[str, Any], backup: bool = True) -> None
             history = sorted(history_dir.glob("*.json"), reverse=True)
             for stale_backup in history[BACKUP_LIMIT:]:
                 stale_backup.unlink(missing_ok=True)
-        except (json.JSONDecodeError, OSError) as exc:  # pragma: no cover - filesystem dependent
+        except (json.JSONDecodeError, UnicodeError, OSError) as exc:  # pragma: no cover - filesystem dependent
             logger.warning("Не удалось создать бэкап конфигурации: %s", exc)
 
     tmp_path = f"{path}.tmp"

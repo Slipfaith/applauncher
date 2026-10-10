@@ -25,10 +25,21 @@ jobs:
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        run: python -m pytest tests -q
 
       - name: Build exe
         run: pyinstaller main.spec
+
+      - name: Verify fresh frozen executable
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $verificationDir = Join-Path $env:RUNNER_TEMP 'applauncher-frozen-verification'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/applauncher.exe').Path -ArgumentList @('--verify-design', ('"' + $verificationDir + '"')) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Frozen verification failed: $($process.ExitCode)" }
+          $result = Get-Content -Raw (Join-Path $verificationDir 'verification.json') | ConvertFrom-Json
+          if ($result.passed -ne $true -or $result.frozen -ne $true) { throw 'Fresh executable did not pass frozen design verification' }
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress

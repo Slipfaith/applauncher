@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+import shutil
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..config import ConfigError, DEFAULT_CONFIG, load_config, resolve_config_path, save_config
@@ -30,6 +32,7 @@ class LauncherService:
         self.window_size: tuple[int, int] | None = None
         self.notes: list[dict] = []
         self.clipboard_history: list[dict] = []
+        self._persistence_error: str | None = None
 
     @property
     def version(self) -> int:
@@ -44,10 +47,10 @@ class LauncherService:
             data = load_config(self.config_file)
         except ConfigError as err:
             logger.warning("Ошибка загрузки конфигурации: %s", err)
-            data = DEFAULT_CONFIG.copy()
+            self._persistence_error = str(err)
             return str(err)
-
-        apps = [app for app in data.get("apps", []) if app.get("source") != "auto"]
+        self._persistence_error = None
+        apps = [app for app in data.get("apps", []) if isinstance(app, dict) and app.get("source") != "auto"]
         apps = self._validate_loaded_items(apps, soft_validate_app_data)
         self._mark_missing_paths(apps)
         self.repository.set_apps(apps)
@@ -175,6 +178,8 @@ class LauncherService:
         }
 
     def persist_config(self) -> Optional[str]:
+        if self._persistence_error:
+            return f"Сохранение заблокировано после ошибки загрузки: {self._persistence_error}"
         payload = self.build_config_payload()
         try:
             save_config(self.config_file, payload)
@@ -185,6 +190,13 @@ class LauncherService:
             return str(err)
 
     def reset_to_defaults(self) -> Optional[str]:
+        if self._persistence_error and os.path.exists(self.config_file):
+            damaged_path = self.config_file + ".damaged-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            try:
+                shutil.copyfile(self.config_file, damaged_path)
+            except OSError as err:
+                return f"Не удалось сохранить повреждённый оригинал: {err}"
+        self._persistence_error = None
         self.repository.set_apps([])
         self.macro_repository.set_apps([])
         self.groups = DEFAULT_CONFIG["groups"].copy()
@@ -250,55 +262,55 @@ class LauncherService:
         self.macro_repository.clear_apps()
 
     def toggle_favorite(self, app_path: str) -> Optional[dict]:
-        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        target = self.repository.find_app(app_path)
         if not target:
             return None
         updated = dict(target)
         updated["favorite"] = not target.get("favorite", False)
-        return self.repository.update_app(target["path"], updated)
+        return self.repository.update_app(target["id"], updated)
 
     def toggle_macro_favorite(self, macro_path: str) -> Optional[dict]:
-        target = next((item for item in self.macro_repository.apps if item["path"] == macro_path), None)
+        target = self.macro_repository.find_app(macro_path)
         if not target:
             return None
         updated = dict(target)
         updated["favorite"] = not target.get("favorite", False)
-        return self.macro_repository.update_app(target["path"], updated)
+        return self.macro_repository.update_app(target["id"], updated)
 
     def move_app_to_group(self, app_path: str, group: str) -> Optional[dict]:
         if group not in self.groups:
             return None
-        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        target = self.repository.find_app(app_path)
         if not target:
             return None
         updated = dict(target)
         updated["group"] = group
-        return self.repository.update_app(target["path"], updated)
+        return self.repository.update_app(target["id"], updated)
 
     def move_macro_to_group(self, macro_path: str, group: str) -> Optional[dict]:
         if group not in self.macro_groups:
             return None
-        target = next((item for item in self.macro_repository.apps if item["path"] == macro_path), None)
+        target = self.macro_repository.find_app(macro_path)
         if not target:
             return None
         updated = dict(target)
         updated["group"] = group
-        return self.macro_repository.update_app(target["path"], updated)
+        return self.macro_repository.update_app(target["id"], updated)
 
     def remove_app_from_group(self, app_path: str, group: str) -> Optional[dict]:
         if group == DEFAULT_GROUP:
             return None
-        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        target = self.repository.find_app(app_path)
         if not target:
             return None
         if target.get("group", DEFAULT_GROUP) != group:
             return None
         updated = dict(target)
         updated["group"] = DEFAULT_GROUP
-        return self.repository.update_app(target["path"], updated)
+        return self.repository.update_app(target["id"], updated)
 
     def remove_macro_from_group(self, macro_path: str, group: str) -> Optional[dict]:
-        target = next((item for item in self.macro_repository.apps if item["path"] == macro_path), None)
+        target = self.macro_repository.find_app(macro_path)
         if not target:
             return None
         if target.get("group", DEFAULT_GROUP) != group:
@@ -307,7 +319,7 @@ class LauncherService:
             self.macro_groups.insert(0, DEFAULT_GROUP)
         updated = dict(target)
         updated["group"] = DEFAULT_GROUP
-        return self.macro_repository.update_app(target["path"], updated)
+        return self.macro_repository.update_app(target["id"], updated)
 
     def delete_group(self, group: str) -> None:
         if group == DEFAULT_GROUP or group not in self.groups:
@@ -316,7 +328,7 @@ class LauncherService:
             if app.get("group", DEFAULT_GROUP) == group:
                 updated = dict(app)
                 updated["group"] = DEFAULT_GROUP
-                self.repository.update_app(app["path"], updated)
+                self.repository.update_app(app["id"], updated)
         self.groups = [name for name in self.groups if name != group]
 
     def delete_macro_group(self, group: str) -> None:
@@ -326,7 +338,7 @@ class LauncherService:
             if macro.get("group", DEFAULT_GROUP) == group:
                 updated = dict(macro)
                 updated["group"] = DEFAULT_GROUP
-                self.macro_repository.update_app(macro["path"], updated)
+                self.macro_repository.update_app(macro["id"], updated)
         if DEFAULT_GROUP not in self.macro_groups:
             self.macro_groups.insert(0, DEFAULT_GROUP)
         self.macro_groups = [name for name in self.macro_groups if name != group]

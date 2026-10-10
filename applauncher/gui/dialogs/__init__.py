@@ -35,6 +35,7 @@ class AddAppDialog(QDialog):
         default_type: str | None = None,
     ):
         super().__init__(parent)
+        self._original_data = dict(app_data or {})
         self.setWindowTitle("Редактировать" if edit_mode else "Добавить элемент")
         self.setMinimumWidth(TOKENS.sizes.dialog_min_width)
         groups = groups or ["Общее"]
@@ -147,13 +148,13 @@ class AddAppDialog(QDialog):
         self.on_type_changed()
         self._last_icon_path = self.icon_input.text().strip()
         self._frame_initialized = False
+        self.update_icon_preview()
         if app_data:
             has_frame = self._has_frame_data(app_data)
             frame = self._resolve_initial_frame(app_data)
             self.icon_preview.set_frame(*frame)
             self._frame_initialized = has_frame
         self.icon_input.textChanged.connect(self.update_icon_preview)
-        self.update_icon_preview()
 
     def _resolve_initial_frame(self, app_data: dict) -> tuple[float, float, float, float]:
         if self._has_frame_data(app_data):
@@ -224,6 +225,7 @@ class AddAppDialog(QDialog):
             self.icon_preview.clear_source()
             self._last_icon_path = ""
             return
+        previous_frame = self.icon_preview.frame()
         self.icon_preview.set_source_from_file(icon_path)
         if icon_path != self._last_icon_path:
             self.icon_preview.reset_frame()
@@ -232,6 +234,8 @@ class AddAppDialog(QDialog):
         elif not self._frame_initialized:
             self.icon_preview.reset_frame()
             self._frame_initialized = True
+        else:
+            self.icon_preview.set_frame(*previous_frame)
 
     def get_data(self) -> dict:
         current_type = "exe"
@@ -241,6 +245,7 @@ class AddAppDialog(QDialog):
             current_type = "folder"
         frame_x, frame_y, frame_w, frame_h = self.icon_preview.frame()
         return {
+            **self._original_data,
             "name": self.name_input.text(),
             "path": self.path_input.text(),
             "icon_path": self.icon_input.text(),

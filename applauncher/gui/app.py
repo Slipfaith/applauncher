@@ -39,6 +39,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from .dialogs import AddAppDialog, HotkeyCaptureDialog, SettingsDialog
 from .icon_service import IconService
+from .file_copy_worker import FileCopyQueue
 from .layouts import FlowLayout
 from .local_shortcut_registry import LocalShortcutRegistry
 from .glyphs import GlyphButton, KeyboardButton
@@ -174,6 +175,9 @@ class AppLauncher(QMainWindow):
         self._state_loaded = False
         self.launch_service = LaunchService()
         self.file_transfer_service = FileTransferService()
+        self._quitting = False
+        self.copy_queue = FileCopyQueue(self.file_transfer_service, self)
+        self.copy_queue.completed.connect(self._on_file_copy_completed)
         self.clipboard_service = ClipboardService(self)
         self.clipboard_service.history_changed.connect(self._on_clipboard_history_changed)
         self.hotkey_service = HotkeyService(self)
@@ -629,6 +633,7 @@ class AppLauncher(QMainWindow):
                     "icon_path": shortcut_data.get("icon_path", ""),
                     "type": shortcut_data.get("type", "exe"),
                     "args": shortcut_data.get("args", []),
+                    "working_dir": shortcut_data.get("working_dir", ""),
                     "group": self.current_group,
                     "usage_count": 0,
                     "source": source,
@@ -735,10 +740,10 @@ class AppLauncher(QMainWindow):
 
     def edit_app(self, app_data: dict):
         for app in self.repository.apps:
-            if app["path"] == app_data["path"]:
+            if app is self.repository.find_app(app_data.get("id", app_data["path"])):
                 dialog = AddAppDialog(self, edit_mode=True, app_data=app, groups=self.groups)
                 if dialog.exec():
-                    updated, error = validate_app_data(dialog.get_data())
+                    updated, error = validate_app_data({**app, **dialog.get_data()})
                     if error:
                         QMessageBox.warning(self, "Ошибка", error)
                         return
@@ -760,7 +765,7 @@ class AppLauncher(QMainWindow):
                     if updated.get("group") not in self.groups:
                         self.groups.append(updated.get("group", DEFAULT_GROUP))
                         self.setup_tabs()
-                    stored = self.service.update_app(app["path"], updated)
+                    stored = self.service.update_app(app["id"], updated)
                     new_icon = (stored or updated).get("icon_path")
                     if previous_icon and previous_icon != new_icon:
                         self.icon_service.cleanup_icon_cache(previous_icon)
@@ -775,7 +780,7 @@ class AppLauncher(QMainWindow):
         if self.current_group != DEFAULT_GROUP:
             self.remove_app_from_group(app_data, self.current_group)
             return
-        if self.service.delete_app(app_data["path"]):
+        if self.service.delete_app(app_data.get("id", app_data["path"])):
             self.icon_service.cleanup_icon_cache(app_data.get("icon_path"))
             self._rebuild_local_shortcuts()
             logger.info("Удален элемент: %s", app_data["name"])
@@ -851,19 +856,19 @@ class AppLauncher(QMainWindow):
         logger.info("Удалены все папки")
 
     def toggle_favorite(self, app_data: dict):
-        if not self.service.toggle_favorite(app_data["path"]):
+        if not self.service.toggle_favorite(app_data.get("id", app_data["path"])):
             return
         self.schedule_save()
         self.refresh_view()
 
     def move_app_to_group(self, app_data: dict, group: str):
-        if not self.service.move_app_to_group(app_data["path"], group):
+        if not self.service.move_app_to_group(app_data.get("id", app_data["path"]), group):
             return
         self.schedule_save()
         self.refresh_view()
 
     def remove_app_from_group(self, app_data: dict, group: str):
-        if not self.service.remove_app_from_group(app_data["path"], group):
+        if not self.service.remove_app_from_group(app_data.get("id", app_data["path"]), group):
             return
         self.schedule_save()
         self.refresh_view()
@@ -884,7 +889,7 @@ class AppLauncher(QMainWindow):
             return
         if self._should_collapse_after_app_launch(app_data):
             self._collapse_to_tray()
-        updated = self.service.increment_usage(app_data["path"]) or app_data
+        updated = self.service.increment_usage(app_data.get("id", app_data["path"])) or app_data
         app_data.update(updated)
         self.schedule_save()
         self.refresh_view()
@@ -921,14 +926,15 @@ class AppLauncher(QMainWindow):
                 selected_hotkey,
                 self.repository.apps,
                 global_hotkey=self.service.global_hotkey,
-                excluded_path=app_path,
+                excluded_id=app_data.get("id"),
+                excluded_path=app_path if not app_data.get("id") else None,
             )
             if error:
                 QMessageBox.warning(self, "Горячая клавиша", error)
                 current_hotkey = selected_hotkey or current_hotkey
                 continue
 
-            stored = self._update_app_local_hotkey(app_path, selected_hotkey)
+            stored = self._update_app_local_hotkey(app_data.get("id", app_path), selected_hotkey)
             if stored is None:
                 QMessageBox.warning(
                     self,
@@ -951,7 +957,7 @@ class AppLauncher(QMainWindow):
         app_path = str(app_data.get("path") or "").strip()
         if not app_path:
             return
-        stored = self._update_app_local_hotkey(app_path, "")
+        stored = self._update_app_local_hotkey(app_data.get("id", app_path), "")
         if stored is None:
             QMessageBox.warning(
                 self,
@@ -966,12 +972,12 @@ class AppLauncher(QMainWindow):
         logger.info("Cleared local hotkey for %s", stored.get("name") or stored.get("path"))
 
     def _update_app_local_hotkey(self, app_path: str, hotkey: str) -> dict | None:
-        target = next((item for item in self.repository.apps if item["path"] == app_path), None)
+        target = self.repository.find_app(app_path)
         if target is None:
             return None
         updated = dict(target)
         updated["local_hotkey"] = format_hotkey_for_display(hotkey)
-        return self.service.update_app(target["path"], updated)
+        return self.service.update_app(target["id"], updated)
 
     def _rebuild_local_shortcuts(self) -> None:
         self.local_shortcut_registry.rebuild(self.repository.apps)
@@ -983,10 +989,11 @@ class AppLauncher(QMainWindow):
     def _copy_dropped_files_to_folder(self, app_data: dict, source_paths: list[str]) -> None:
         if app_data.get("type") != "folder":
             return
-        summary = self.file_transfer_service.copy_files_to_folder(
-            source_paths,
-            app_data.get("path", ""),
-        )
+        self.copy_queue.submit(source_paths, app_data.get("path", ""))
+
+    def _on_file_copy_completed(self, summary) -> None:
+        if self._quitting:
+            return
         if summary.copied == 0 and summary.failed > 0:
             error_lines = [f"Не удалось скопировать файлы в:\n{summary.target_folder}"]
             for item in summary.errors[:3]:
@@ -1196,9 +1203,12 @@ class AppLauncher(QMainWindow):
         self.schedule_save()
 
     def schedule_save(self):
-        self._save_timer.start()
+        if not self._quitting:
+            self._save_timer.start()
 
     def _persist_config(self):
+        if self._quitting:
+            return
         if self._notes_dirty and hasattr(self, "notes_widget"):
             self.service.notes = self.notes_widget.get_notes()
             self._notes_dirty = False
@@ -1695,7 +1705,7 @@ class AppLauncher(QMainWindow):
                 if error:
                     QMessageBox.warning(self, "Ошибка", error)
                 return
-            updated = self.service.increment_macro_usage(result.payload["path"]) or result.payload
+            updated = self.service.increment_macro_usage(result.payload.get("id", result.payload["path"])) or result.payload
             result.payload.update(updated)
         else:
             success, error = self.launch_service.launch(result.payload)
@@ -1705,7 +1715,7 @@ class AppLauncher(QMainWindow):
                 return
             if self._should_collapse_after_app_launch(result.payload):
                 self._collapse_to_tray()
-            updated = self.service.increment_usage(result.payload["path"]) or result.payload
+            updated = self.service.increment_usage(result.payload.get("id", result.payload["path"])) or result.payload
             result.payload.update(updated)
         self.universal_search.hide()
         self.schedule_save()
@@ -1745,6 +1755,12 @@ class AppLauncher(QMainWindow):
             self._scroll_to_top()
 
     def _prepare_for_quit(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
+        self._save_timer.stop()
+        self.copy_queue.drain()
+        self.icon_service.drain()
         self._flush_pending_save()
         hotkey_timer = getattr(self, "_hotkey_health_timer", None)
         if hotkey_timer is not None:
@@ -1782,14 +1798,13 @@ def run_app():
     socket = QLocalSocket()
     socket.connectToServer(server_name)
     if socket.waitForConnected(200):
-        if launch_args:
-            try:
-                payload = json.dumps({"args": launch_args}, ensure_ascii=False)
-                socket.write(payload.encode("utf-8") + b"\n")
-                socket.flush()
-                socket.waitForBytesWritten(200)
-            except Exception:
-                logger.debug("Failed to send launch arguments to existing instance", exc_info=True)
+        try:
+            payload = json.dumps({"args": launch_args}, ensure_ascii=False)
+            socket.write(payload.encode("utf-8") + b"\n")
+            socket.flush()
+            socket.waitForBytesWritten(200)
+        except Exception:
+            logger.debug("Failed to send launch arguments to existing instance", exc_info=True)
         socket.disconnectFromServer()
         logger.info("Уже запущен экземпляр лаунчера, выход")
         return 0

@@ -148,14 +148,17 @@ def find_local_hotkey_conflict(
     hotkey: str | None,
     *,
     excluded_path: str | None = None,
+    excluded_id: str | None = None,
 ) -> Mapping[str, object] | None:
     target = normalize_hotkey_text(hotkey)
     if not target:
         return None
     excluded = (excluded_path or "").strip()
     for item in items:
+        if excluded_id and item.get("id") == excluded_id:
+            continue
         item_path = str(item.get("path") or "").strip()
-        if excluded and item_path == excluded:
+        if not excluded_id and excluded and item_path == excluded:
             continue
         if normalize_hotkey_text(str(item.get("local_hotkey") or "")) == target:
             return item
@@ -168,6 +171,7 @@ def validate_local_hotkey_assignment(
     *,
     global_hotkey: str | None = None,
     excluded_path: str | None = None,
+    excluded_id: str | None = None,
 ) -> str | None:
     normalized = normalize_hotkey_text(hotkey)
     if not normalized:
@@ -193,7 +197,7 @@ def validate_local_hotkey_assignment(
     if normalized in application_reserved:
         return "Комбинация зарезервирована приложением."
 
-    conflict = find_local_hotkey_conflict(items, normalized, excluded_path=excluded_path)
+    conflict = find_local_hotkey_conflict(items, normalized, excluded_path=excluded_path, excluded_id=excluded_id)
     if conflict is not None:
         conflict_name = str(conflict.get("name") or conflict.get("path") or "другому элементу")
         return f'Комбинация уже назначена элементу "{conflict_name}".'

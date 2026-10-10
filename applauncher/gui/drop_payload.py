@@ -27,10 +27,32 @@ WINDOWS_FILE_DESCRIPTOR_W_NAME_SIZE = 520
 WINDOWS_FILE_DESCRIPTOR_A_NAME_SIZE = 260
 
 
+class DropFilePaths(list):
+    """List-compatible payload with transferable temporary-file ownership."""
+
+    def __init__(self, paths, temp_dirs):
+        super().__init__(paths)
+        self.temp_dirs = list(temp_dirs)
+        self.claimed = False
+
+    def claim(self) -> None:
+        self.claimed = True
+
+    def cleanup(self) -> None:
+        for temp_dir in self.temp_dirs:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        self.temp_dirs.clear()
+
+
 @dataclass(slots=True)
 class ExtractedDropFiles:
     paths: list[str] = field(default_factory=list)
     temp_dirs: list[str] = field(default_factory=list)
+
+    def transfer(self) -> DropFilePaths:
+        payload = DropFilePaths(self.paths, self.temp_dirs)
+        self.temp_dirs.clear()
+        return payload
 
     def cleanup(self) -> None:
         for temp_dir in self.temp_dirs:
