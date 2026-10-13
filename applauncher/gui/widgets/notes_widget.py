@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QTextEdit,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -51,10 +52,12 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextFormat,
+    QTextOption,
     QTransform,
     QWheelEvent,
 )
 
+from ..glyphs import GlyphButton
 from ..styles import TOKENS
 
 SPOILER_LEGACY_FG = QColor("#d1d5db")
@@ -64,7 +67,7 @@ SPOILER_META_PROP = int(QTextFormat.UserProperty) + 1
 SPOILER_FOREGROUND_PROP = SPOILER_META_PROP + 1
 SPOILER_BACKGROUND_PROP = SPOILER_META_PROP + 2
 NOTE_MIN_WIDTH = 280
-NOTE_PREVIEW_LINES = 5
+LINE_SEPARATOR = "\u2028"
 NOTE_EDITOR_SIZE = QSize(560, 400)
 
 _NOISE_PIXMAP = None
@@ -233,6 +236,7 @@ class SpoilerTextEdit(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptRichText(True)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self._spoiler_rects_cache: list[QRect] = []
         self._overlay = _SpoilerOverlay(self)
         self.textChanged.connect(self._schedule_refresh)
@@ -241,10 +245,13 @@ class SpoilerTextEdit(QTextEdit):
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(0)
         self._refresh_timer.timeout.connect(self._refresh_overlay)
+        self._last_double_click: tuple[int, QPoint] | None = None
+        self._context_menu_open = False
 
     def setHtml(self, text: str) -> None:
         """Load old notes and optional colour metadata within the same HTML field."""
         super().setHtml(text)
+        self._enable_line_wrapping()
         match = re.search(r'<meta name="applauncher-spoiler-styles" content="([\w=-]+)"\s*/?>', text)
         if not match:
             return
@@ -275,6 +282,23 @@ class SpoilerTextEdit(QTextEdit):
         except (ValueError, TypeError, KeyError):
             return
 
+    def _enable_line_wrapping(self):
+        # Pasted HTML can carry white-space:pre, overriding QTextEdit's wrap mode.
+        block = self.document().begin()
+        while block.isValid():
+            fmt = block.blockFormat()
+            if fmt.nonBreakableLines():
+                fmt.setNonBreakableLines(False)
+                QTextCursor(block).setBlockFormat(fmt)
+            block = block.next()
+
+    def insertFromMimeData(self, source):
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        super().insertFromMimeData(source)
+        self._enable_line_wrapping()
+        cursor.endEditBlock()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._overlay.setGeometry(self.viewport().rect())
@@ -282,12 +306,34 @@ class SpoilerTextEdit(QTextEdit):
 
     def showEvent(self, event):
         super().showEvent(event)
+        QApplication.instance().installEventFilter(self)
         self.refresh_overlay_now()
 
     def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        self.remask_revealed_spoilers()
         super().hideEvent(event)
         self._refresh_timer.stop()
         self._overlay.stop()
+
+    def eventFilter(self, obj, event):
+        # Listen at application level: clicking blank space or another card may
+        # leave keyboard focus in this text edit, so focusOutEvent is not enough.
+        if event.type() == QEvent.MouseButtonPress and self.isVisible() and self.has_revealed_spoilers():
+            position = None
+            if obj is self.viewport() or obj is self:
+                point = self.viewport().mapFromGlobal(event.globalPosition().toPoint())
+                position = self._spoiler_position_at(point)
+            if position is not None:
+                cursor = QTextCursor(self.document())
+                cursor.setPosition(position)
+                cursor.movePosition(QTextCursor.NextCharacter, QTextCursor.KeepAnchor)
+                if not self._is_hidden(cursor.charFormat()):
+                    return super().eventFilter(obj, event)
+            self.remask_revealed_spoilers()
+        elif event.type() == QEvent.ApplicationDeactivate and self.isVisible():
+            self.remask_revealed_spoilers()
+        return super().eventFilter(obj, event)
 
     def _schedule_refresh(self):
         self._refresh_timer.start()
@@ -308,37 +354,214 @@ class SpoilerTextEdit(QTextEdit):
         else:
             self._overlay.stop()
 
-    def contextMenuEvent(self, event):
+    def _create_context_menu(self):
         menu = self.createStandardContextMenu()
+        menu.setCursor(Qt.ArrowCursor)
         cursor = self.textCursor()
         if cursor.hasSelection():
             menu.addSeparator()
-            mask_action = menu.addAction("Замаскировать")
-            mask_action.triggered.connect(self._mask_selection)
-        menu.exec(event.globalPos())
-        menu.deleteLater()
+            mask_action = menu.addAction("Скрыть")
+            mask_action.setData("note-hide")
+            if self._selected_spoiler_ranges():
+                menu.addAction("Раскрыть").setData("note-unhide")
+        return menu
+
+    def contextMenuEvent(self, event):
+        # A right click does not select text in QTextEdit. Offer spoiler actions
+        # for the fragment under the pointer even without a prior selection.
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            point = event.pos() if event.reason() == QContextMenuEvent.Mouse else self.cursorRect().center()
+            position = self._spoiler_position_at(point)
+            if position is not None:
+                start, end = self._spoiler_range_at(position)
+                cursor.setPosition(start)
+                cursor.setPosition(end, QTextCursor.KeepAnchor)
+                self.setTextCursor(cursor)
+        selection = QTextCursor(self.textCursor())
+        menu = self._create_context_menu()
+        self._context_menu_open = True
+        # Windows can retain the viewport's I-beam while a nested popup has the
+        # mouse grab. Push/pop an override rather than inheriting that cursor.
+        QApplication.setOverrideCursor(Qt.ArrowCursor)
+        try:
+            action = menu.exec(event.globalPos())
+            # Apply formatting after the native menu has released focus/mouse
+            # capture, using the selection that the user opened the menu for.
+            if action is not None and action.data() in ("note-hide", "note-unhide"):
+                self.setTextCursor(selection)
+                if action.data() == "note-hide":
+                    self._mask_selection()
+                else:
+                    self._unmask_selection()
+        finally:
+            QApplication.restoreOverrideCursor()
+            self._context_menu_open = False
+            menu.deleteLater()
 
     def _mask_selection(self):
         cursor = self.textCursor()
         if not cursor.hasSelection():
             return
         self._apply_spoiler_state(cursor.selectionStart(), cursor.selectionEnd(), hidden=True, emit_signal=True)
+        cursor.clearSelection()
+        self.setTextCursor(cursor)
         self.refresh_overlay_now()
+
+    def _selected_spoiler_ranges(self, *, hidden_only=False):
+        selection = self.textCursor()
+        start, end = selection.selectionStart(), selection.selectionEnd()
+        ranges = []
+        block = self.document().findBlock(start)
+        while block.isValid() and block.position() < end:
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid() and (self._is_hidden(fragment.charFormat()) if hidden_only else self._is_spoiler(fragment.charFormat())):
+                    left = max(start, fragment.position())
+                    right = min(end, fragment.position() + fragment.length())
+                    if left < right:
+                        ranges.append((left, right))
+                iterator += 1
+            block = block.next()
+        return ranges
+
+    def _unmask_selection(self):
+        # Restore the original character styles and remove the spoiler marker.
+        # Unlike a temporary reveal, this remains visible after clicking away.
+        ranges = self._selected_spoiler_ranges()
+        if not ranges:
+            return
+        cursor = QTextCursor(self.document())
+        cursor.beginEditBlock()
+        for start, end in ranges:
+            self._apply_spoiler_state(start, end, hidden=False, emit_signal=False)
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.KeepAnchor)
+            fmt = cursor.charFormat()
+            for prop in (SPOILER_META_PROP, SPOILER_FOREGROUND_PROP, SPOILER_BACKGROUND_PROP):
+                fmt.clearProperty(prop)
+            cursor.setCharFormat(fmt)
+        cursor.endEditBlock()
+        self.refresh_overlay_now()
+
+    def mousePressEvent(self, event):
+        if self._context_menu_open:
+            event.accept()
+            return
+        if event.button() == Qt.LeftButton and self._is_triple_click(event):
+            self._last_double_click = None
+            self.copy_line_at(event.position().toPoint())
+            event.accept()
+            return
+        position = None
+        if event.button() == Qt.LeftButton:
+            position = self._spoiler_position_at(event.position().toPoint(), hidden_only=True)
+        super().mousePressEvent(event)
+        # Reveal on press, preserving Qt's selection anchor for dragging.
+        if position is not None:
+            self._reveal_at(position)
+
+    def _reveal_selected_spoilers(self):
+        # A drag can begin just beyond the hidden text (for example at the end
+        # of an email). Reveal what the selection reaches, not only its origin.
+        for start, _ in self._selected_spoiler_ranges(hidden_only=True):
+            self._reveal_at(start)
+
+    def mouseMoveEvent(self, event):
+        if self._context_menu_open:
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+        if event.buttons() & Qt.LeftButton:
+            self._reveal_selected_spoilers()
+
+    def mouseReleaseEvent(self, event):
+        if self._context_menu_open:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.LeftButton:
+            self._reveal_selected_spoilers()
+
+    def _spoiler_position_at(self, point: QPoint, *, hidden_only=False) -> int | None:
+        # Hit the text itself, not the closest cursor on an adjacent line.
+        block = self.document().begin()
+        while block.isValid():
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid():
+                    fmt = fragment.charFormat()
+                    matches = self._is_hidden(fmt) if hidden_only else self._is_spoiler(fmt)
+                    if matches and any(rect.contains(point) for rect in self._frag_rects(fragment.position(), fragment.length())):
+                        position = self.cursorForPosition(point).position()
+                        return max(fragment.position(), min(position, fragment.position() + fragment.length() - 1))
+                iterator += 1
+            block = block.next()
+        return None
+
+    def _remember_double_click(self, event: QMouseEvent) -> None:
+        self._last_double_click = (event.timestamp(), event.position().toPoint())
+
+    def _is_triple_click(self, event: QMouseEvent) -> bool:
+        if self._last_double_click is None:
+            return False
+        stamp, pos = self._last_double_click
+        if event.timestamp() - stamp > QApplication.doubleClickInterval():
+            return False
+        return (event.position().toPoint() - pos).manhattanLength() <= QApplication.startDragDistance()
+
+    def copy_line_at(self, point: QPoint) -> str:
+        """Select and copy the whole line under ``point``, spoilers included."""
+        cursor = self.cursorForPosition(point)
+        block = cursor.block()
+        text = block.text()
+        offset = cursor.position() - block.position()
+        # Shift+Enter breaks stay inside one block as U+2028; each is its own line.
+        start = text.rfind(LINE_SEPARATOR, 0, offset) + 1
+        end = text.find(LINE_SEPARATOR, offset)
+        if end < 0:
+            end = len(text)
+        line = text[start:end].replace("\u00a0", " ")
+        if not line.strip():
+            return ""
+        cursor.setPosition(block.position() + start)
+        cursor.setPosition(block.position() + end, QTextCursor.KeepAnchor)
+        self.setTextCursor(cursor)
+        QApplication.clipboard().setText(line)
+        QToolTip.showText(self.viewport().mapToGlobal(point), "Строка скопирована", self)
+        return line
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self._remember_double_click(event)
             cursor = self.cursorForPosition(event.position().toPoint())
             self.setFocus(Qt.MouseFocusReason)
-            if self._is_spoiler(cursor.charFormat()):
-                self.setTextCursor(cursor)
-                self._reveal_at(cursor.position())
-            else:
-                # A fresh cursor discards any anchor left on another line.
-                cursor.select(QTextCursor.WordUnderCursor)
-                self.setTextCursor(cursor)
+            position = self._spoiler_position_at(event.position().toPoint())
+            if position is not None:
+                self._reveal_at(position)
+            # A fresh cursor discards any anchor left on another line. Spoilers
+            # use the same word selection as ordinary text after revealing.
+            self._select_word_or_email(cursor)
+            self.setTextCursor(cursor)
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    @staticmethod
+    def _select_word_or_email(cursor: QTextCursor):
+        block = cursor.block()
+        text = block.text()
+        for match in re.finditer(r"[\w.+-]+@[\w.-]+", text):
+            # QTextCursor positions count UTF-16 code units, not Python chars.
+            start = block.position() + len(text[:match.start()].encode("utf-16-le")) // 2
+            end = start + len(match.group().encode("utf-16-le")) // 2
+            if start <= cursor.position() <= end:
+                cursor.setPosition(start)
+                cursor.setPosition(end, QTextCursor.KeepAnchor)
+                return
+        cursor.select(QTextCursor.WordUnderCursor)
 
     @staticmethod
     def _is_spoiler(fmt: QTextCharFormat) -> bool:
@@ -440,7 +663,7 @@ class SpoilerTextEdit(QTextEdit):
         cursor.endEditBlock()
         del blocker
 
-    def _reveal_at(self, pos: int):
+    def _spoiler_range_at(self, pos: int) -> tuple[int, int]:
         doc = self.document()
         total = doc.characterCount()
         start, end = pos, pos
@@ -461,6 +684,10 @@ class SpoilerTextEdit(QTextEdit):
                 break
             end += 1
 
+        return start, end
+
+    def _reveal_at(self, pos: int):
+        start, end = self._spoiler_range_at(pos)
         if start == end:
             return
         self._apply_spoiler_state(start, end, hidden=False, emit_signal=False)
@@ -514,27 +741,30 @@ class SpoilerTextEdit(QTextEdit):
         return [r for r in rects if vp.intersects(r)]
 
     def _frag_rects(self, start: int, length: int) -> list[QRect]:
-        rects: list[QRect] = []
-        cursor = QTextCursor(self.document())
-        cursor.setPosition(start)
-        prev = self.cursorRect(cursor)
-        line_left = prev.left()
-        cur_y = prev.top()
-        cur_h = prev.height()
-        last_right = prev.right()
-
-        for i in range(1, length + 1):
-            cursor.setPosition(start + i)
-            r = self.cursorRect(cursor)
-            if r.top() != cur_y:
-                rects.append(QRect(line_left, cur_y, last_right - line_left, cur_h))
-                line_left = r.left()
-                cur_y = r.top()
-                cur_h = r.height()
-            last_right = r.right()
-
-        if last_right > line_left:
-            rects.append(QRect(line_left, cur_y, last_right - line_left, cur_h))
+        # Cursor rectangles jump to the next line at a wrap boundary. Use the
+        # actual text layout so the final glyph is covered and adjacent lines
+        # never acquire a stray mask rectangle.
+        block = self.document().findBlock(start)
+        layout = block.layout()
+        bounds = self.document().documentLayout().blockBoundingRect(block)
+        first = start - block.position()
+        last = first + length
+        rects = []
+        for index in range(layout.lineCount()):
+            line = layout.lineAt(index)
+            left = max(first, line.textStart())
+            right = min(last, line.textStart() + line.textLength())
+            if left >= right:
+                continue
+            x1, _ = line.cursorToX(left)
+            x2, _ = line.cursorToX(right)
+            rect = QRectF(
+                bounds.left() + min(x1, x2) - self.horizontalScrollBar().value(),
+                bounds.top() + line.y() - self.verticalScrollBar().value(),
+                abs(x2 - x1), line.height(),
+            ).toAlignedRect()
+            if not rect.isEmpty():
+                rects.append(rect)
         return rects
 
 
@@ -550,8 +780,13 @@ class NotePreviewTextEdit(SpoilerTextEdit):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
-        self.setToolTip("Двойной клик — редактировать заметку")
+        self.setToolTip("Двойной клик по тексту — выделить; по пустому месту — редактировать; тройной — скопировать строку")
         self.setAccessibleName("Текст заметки")
+        # The editor opens only once a third click (copy line) can no longer follow.
+        self._edit_position = 0
+        self._edit_timer = QTimer(self)
+        self._edit_timer.setSingleShot(True)
+        self._edit_timer.timeout.connect(lambda: self.editRequested.emit(self._edit_position))
 
     def sizeHint(self) -> QSize:
         return QSize(NOTE_MIN_WIDTH, self._display_height)
@@ -562,19 +797,31 @@ class NotePreviewTextEdit(SpoilerTextEdit):
     def wheelEvent(self, event: QWheelEvent) -> None:
         event.ignore()
 
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton and self._is_triple_click(event):
+            self._edit_timer.stop()
+        super().mousePressEvent(event)
+
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:
-            self.editRequested.emit(self.cursorForPosition(event.position().toPoint()).position())
+            point = event.position() + QPointF(self.horizontalScrollBar().value(), self.verticalScrollBar().value())
+            if self.document().documentLayout().hitTest(point, Qt.ExactHit) >= 0:
+                self._edit_timer.stop()
+                super().mouseDoubleClickEvent(event)
+                return
+            self._remember_double_click(event)
+            self._edit_position = self.cursorForPosition(event.position().toPoint()).position()
+            self._edit_timer.start(QApplication.doubleClickInterval())
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
-    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        menu = self.createStandardContextMenu()
+    def _create_context_menu(self):
+        self._edit_timer.stop()
+        menu = super()._create_context_menu()
         menu.addSeparator()
         menu.addAction("Редактировать заметку", lambda: self.editRequested.emit(0))
-        menu.exec(event.globalPos())
-        menu.deleteLater()
+        return menu
 
 
 class NoteEditorPopup(QDialog):
@@ -633,11 +880,10 @@ class NoteEditorPopup(QDialog):
         self.title_input.setPlaceholderText("Заголовок заметки")
         self.title_input.setAccessibleName("Заголовок заметки")
         header.addWidget(self.title_input, 1)
-        close_button = QPushButton("✕")
+        close_button = GlyphButton("close", tooltip="Закрыть и сохранить")
+        close_button.setProperty("variant", "ghost")
         close_button.setProperty("role", "iconButton")
         close_button.setFixedSize(28, 28)
-        close_button.setToolTip("Закрыть и сохранить")
-        close_button.setAccessibleName("Закрыть и сохранить")
         close_button.clicked.connect(self.close)
         header.addWidget(close_button)
         return header
@@ -706,15 +952,25 @@ class NoteEditorPopup(QDialog):
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.WindowDeactivate and self.isVisible():
+            if self.content._context_menu_open:
+                return super().event(event)
             active = QApplication.activePopupWidget()
-            if active is None or active is self or not self.isAncestorOf(active):
+            if active is None or active is self or not self._owns_widget(active):
                 self.close()
         return super().event(event)
+
+    def _owns_widget(self, widget: QObject) -> bool:
+        # QWidget.isAncestorOf stops at popup windows, including our own QMenu.
+        while widget is not None:
+            if widget is self:
+                return True
+            widget = widget.parent()
+        return False
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if self.isVisible() and event.type() == QEvent.MouseButtonPress:
             inside = self.rect().contains(self.mapFromGlobal(event.globalPosition().toPoint()))
-            child = isinstance(obj, QWidget) and self.isAncestorOf(obj)
+            child = self._owns_widget(obj)
             if not inside and not child:
                 self.close()
         return super().eventFilter(obj, event)
@@ -730,7 +986,7 @@ class NoteEditorPopup(QDialog):
 
 
 class NoteCard(QWidget):
-    """Content-sized note with an optional five-line preview and popup editor."""
+    """Content-sized note that folds down to its header, with a popup editor."""
 
     changed = Signal(str)
     layoutChanged = Signal()
@@ -746,7 +1002,6 @@ class NoteCard(QWidget):
         self.setMinimumWidth(NOTE_MIN_WIDTH)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 12, 12)
         layout.setSpacing(4)
         layout.addLayout(self._build_header(note_data))
 
@@ -759,8 +1014,9 @@ class NoteCard(QWidget):
         self._height_timer.setSingleShot(True)
         self._height_timer.timeout.connect(self._sync_content_height)
         self.content.textChanged.connect(self._schedule_content_height)
+        self.content.textChanged.connect(lambda: self.changed.emit(self.note_id))
         self.content.document().documentLayout().documentSizeChanged.connect(self._schedule_content_height)
-        self._update_collapse_button()
+        self._apply_collapsed()
         self._schedule_content_height()
         self._edit_shortcut = QShortcut(QKeySequence("F2"), self)
         self._edit_shortcut.setContext(Qt.WidgetWithChildrenShortcut)
@@ -770,11 +1026,10 @@ class NoteCard(QWidget):
     def _build_header(self, note_data: dict) -> QHBoxLayout:
         header = QHBoxLayout()
         header.setSpacing(3)
-        self.collapse_btn = QPushButton()
+        self.collapse_btn = GlyphButton("chevron-down", glyph_size=14)
         self.collapse_btn.setFixedSize(24, 24)
         self.collapse_btn.setProperty("variant", "ghost")
         self.collapse_btn.setProperty("role", "iconButton")
-        self.collapse_btn.setCursor(Qt.PointingHandCursor)
         self.collapse_btn.clicked.connect(self.toggle_collapsed)
         header.addWidget(self.collapse_btn)
 
@@ -783,18 +1038,15 @@ class NoteCard(QWidget):
         self.title_input.setPlaceholderText("Без заголовка")
         self.title_input.setMinimumWidth(0)
         self.title_input.setProperty("role", "noteTitleInput")
-        self.title_input.setToolTip("Двойной клик — редактировать заметку")
+        self.title_input.setToolTip("Двойной клик по тексту — выделить; по пустому месту — редактировать")
         self.title_input.setAccessibleName("Заголовок заметки")
         self.title_input.installEventFilter(self)
         header.addWidget(self.title_input, 1)
 
-        self.delete_btn = QPushButton("✕")
+        self.delete_btn = GlyphButton("trash", glyph_size=16, tooltip="Удалить заметку")
         self.delete_btn.setFixedSize(24, 24)
         self.delete_btn.setProperty("variant", "danger")
         self.delete_btn.setProperty("role", "iconButton")
-        self.delete_btn.setCursor(Qt.PointingHandCursor)
-        self.delete_btn.setToolTip("Удалить заметку")
-        self.delete_btn.setAccessibleName("Удалить заметку")
         self.delete_btn.clicked.connect(lambda: self.deleteRequested.emit(self.note_id))
         header.addWidget(self.delete_btn)
         return header
@@ -802,6 +1054,14 @@ class NoteCard(QWidget):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj is self.title_input and event.type() == QEvent.MouseButtonDblClick:
             if event.button() == Qt.LeftButton:
+                text = self.title_input.text()
+                caret = self.title_input.cursorRect()
+                prefix = text.encode("utf-16-le")[:self.title_input.cursorPosition() * 2].decode("utf-16-le", errors="ignore")
+                metrics = self.title_input.fontMetrics()
+                left = caret.left() - metrics.horizontalAdvance(prefix)
+                bounds = QRect(left, caret.top(), metrics.horizontalAdvance(text), caret.height())
+                if text and bounds.contains(event.position().toPoint()):
+                    return False  # Let QLineEdit select the title text normally.
                 self.open_editor()
                 return True
         return super().eventFilter(obj, event)
@@ -815,17 +1075,18 @@ class NoteCard(QWidget):
 
     def toggle_collapsed(self) -> None:
         self._collapsed = not self._collapsed
-        self._update_collapse_button()
-        cursor = self.content.textCursor()
-        cursor.setPosition(0)
-        self.content.setTextCursor(cursor)
-        self.content.verticalScrollBar().setValue(0)
+        self._apply_collapsed()
         self._sync_content_height()
+        self.updateGeometry()
+        self.layoutChanged.emit()
         self.changed.emit(self.note_id)
 
-    def _update_collapse_button(self) -> None:
-        self.collapse_btn.setText("▸" if self._collapsed else "▾")
-        label = "Развернуть полностью" if self._collapsed else "Свернуть до 5 строк"
+    def _apply_collapsed(self) -> None:
+        """A folded note keeps only its header row."""
+        self.content.setVisible(not self._collapsed)
+        self.layout().setContentsMargins(10, 8, 12, 8 if self._collapsed else 12)
+        self.collapse_btn.set_glyph("chevron-right" if self._collapsed else "chevron-down")
+        label = "Развернуть заметку" if self._collapsed else "Свернуть заметку"
         self.collapse_btn.setToolTip(label)
         self.collapse_btn.setAccessibleName(label)
 
@@ -833,21 +1094,7 @@ class NoteCard(QWidget):
         self._height_timer.start(0)
 
     def _target_content_height(self) -> int:
-        document = self.content.document()
-        height = document.size().height()
-        if self._collapsed:
-            remaining = NOTE_PREVIEW_LINES
-            block = document.begin()
-            while block.isValid():
-                text_layout = block.layout()
-                count = text_layout.lineCount()
-                if count >= remaining:
-                    line = text_layout.lineAt(remaining - 1)
-                    bounds = document.documentLayout().blockBoundingRect(block)
-                    height = min(height, bounds.top() + line.y() + line.height())
-                    break
-                remaining -= count
-                block = block.next()
+        height = self.content.document().size().height()
         chrome = self.content.height() - self.content.viewport().height()
         return max(self.content.fontMetrics().height() + 8, ceil(height) + chrome)
 
@@ -859,8 +1106,6 @@ class NoteCard(QWidget):
             self.content.updateGeometry()
             self.updateGeometry()
             self.layoutChanged.emit()
-        if self._collapsed:
-            self.content.verticalScrollBar().setValue(0)
 
     def open_editor(self, position: int = 0) -> NoteEditorPopup:
         if self._editor is not None:
@@ -888,9 +1133,12 @@ class NoteCard(QWidget):
 
     def _on_editor_edited(self, title: str, content_html: str) -> None:
         title_blocker = QSignalBlocker(self.title_input)
+        content_blocker = QSignalBlocker(self.content)
         self.title_input.setText(title)
         self.content.setHtml(content_html)
+        del content_blocker
         del title_blocker
+        self.content.refresh_overlay_now()
         self._sync_content_height()
         self.changed.emit(self.note_id)
 

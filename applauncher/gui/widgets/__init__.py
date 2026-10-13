@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QEvent, Qt, QRect, QSize, QTimer, Signal, QMimeData, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QDrag, QFontMetrics, QIcon, QColor, QPalette, QTextLayout, QTextOption
 
-from ..glyphs import GlyphButton, KeyboardButton, paint_focus
+from ..glyphs import GlyphButton, KeyboardButton, glyph_icon, paint_focus
 from ..fallback_icons import ItemIconWidget, fallback_icon
-from ..styles import TOKENS, to_qcolor
+from ..styles import TOKENS, active_colors, to_qcolor
 from ...repository import DEFAULT_GROUP
 from ..drop_payload import can_extract_dropped_files, extract_dropped_files
 from ..tile_image.frame import default_icon_frame, render_framed_pixmap, resolve_icon_frame
@@ -326,31 +326,32 @@ class AppButton(KeyboardButton):
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
-        edit_action = menu.addAction("✏️ Редактировать")
-        open_folder_action = menu.addAction("📂 Открыть расположение")
+        edit_action = menu.addAction(glyph_icon("edit"), "Редактировать")
+        open_folder_action = menu.addAction(glyph_icon("folder-open"), "Открыть расположение")
         current_hotkey = (self.app_data.get("local_hotkey") or "").strip()
         if current_hotkey:
-            hotkey_action = menu.addAction(f"⌨️ Изменить горячую клавишу ({current_hotkey})")
+            hotkey_action = menu.addAction(glyph_icon("keyboard"), f"Изменить горячую клавишу ({current_hotkey})")
         else:
-            hotkey_action = menu.addAction("⌨️ Назначить горячую клавишу")
+            hotkey_action = menu.addAction(glyph_icon("keyboard"), "Назначить горячую клавишу")
         clear_hotkey_action = None
         if current_hotkey:
-            clear_hotkey_action = menu.addAction("🧹 Удалить горячую клавишу")
+            clear_hotkey_action = menu.addAction(glyph_icon("close"), "Удалить горячую клавишу")
         copy_link_action = None
         if self.app_data.get("type") == "url":
-            copy_link_action = menu.addAction("🔗 Скопировать ссылку")
+            copy_link_action = menu.addAction(glyph_icon("link"), "Скопировать ссылку")
         favorite_action = None
         if self.show_favorite:
             favorite_action = menu.addAction(
-                "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
+                glyph_icon("star"),
+                "Закрепить" if not self.app_data.get("favorite") else "Открепить",
             )
         delete_action = None
         trash_action = None
         if self.default_group and self.current_group == self.default_group:
-            trash_action = menu.addAction("🗑️ В мусор")
+            trash_action = menu.addAction(glyph_icon("trash", active_colors().danger), "В мусор")
         else:
-            delete_action = menu.addAction("🗑️ Удалить")
-        move_menu = menu.addMenu("📁 Переместить в")
+            delete_action = menu.addAction(glyph_icon("trash", active_colors().danger), "Удалить")
+        move_menu = menu.addMenu(glyph_icon("move"), "Переместить в")
         move_action_map = {}
         for group in self.available_groups:
             if group == self.current_group:
@@ -646,31 +647,32 @@ class AppListItem(QWidget):
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
-        edit_action = menu.addAction("✏️ Редактировать")
-        open_folder_action = menu.addAction("📂 Открыть расположение")
+        edit_action = menu.addAction(glyph_icon("edit"), "Редактировать")
+        open_folder_action = menu.addAction(glyph_icon("folder-open"), "Открыть расположение")
         current_hotkey = (self.app_data.get("local_hotkey") or "").strip()
         if current_hotkey:
-            hotkey_action = menu.addAction(f"⌨️ Изменить горячую клавишу ({current_hotkey})")
+            hotkey_action = menu.addAction(glyph_icon("keyboard"), f"Изменить горячую клавишу ({current_hotkey})")
         else:
-            hotkey_action = menu.addAction("⌨️ Назначить горячую клавишу")
+            hotkey_action = menu.addAction(glyph_icon("keyboard"), "Назначить горячую клавишу")
         clear_hotkey_action = None
         if current_hotkey:
-            clear_hotkey_action = menu.addAction("🧹 Удалить горячую клавишу")
+            clear_hotkey_action = menu.addAction(glyph_icon("close"), "Удалить горячую клавишу")
         copy_link_action = None
         if self.app_data.get("type") == "url":
-            copy_link_action = menu.addAction("🔗 Скопировать ссылку")
+            copy_link_action = menu.addAction(glyph_icon("link"), "Скопировать ссылку")
         favorite_action = None
         if self.show_favorite:
             favorite_action = menu.addAction(
-                "☆ Закрепить" if not self.app_data.get("favorite") else "★ Открепить"
+                glyph_icon("star"),
+                "Закрепить" if not self.app_data.get("favorite") else "Открепить",
             )
         delete_action = None
         trash_action = None
         if self.default_group and self.current_group == self.default_group:
-            trash_action = menu.addAction("🗑️ В мусор")
+            trash_action = menu.addAction(glyph_icon("trash", active_colors().danger), "В мусор")
         else:
-            delete_action = menu.addAction("🗑️ Удалить")
-        move_menu = menu.addMenu("📁 Переместить в")
+            delete_action = menu.addAction(glyph_icon("trash", active_colors().danger), "Удалить")
+        move_menu = menu.addMenu(glyph_icon("move"), "Переместить в")
         move_action_map = {}
         for group in self.available_groups:
             if group == self.current_group:

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QKeySequence, QShortcut
 
 from ...services.clipboard_service import ClipboardService
+from ..glyphs import glyph_icon
 from ..styles import TOKENS
 
 
@@ -63,6 +64,7 @@ class ClipboardHistoryWidget(QWidget):
     def _refresh_list(self, *_args) -> None:
         query = (self.search_input.text() or "").lower()
         self.list_widget.clear()
+        pin_icon = None
         for text, timestamp, pinned in self.clipboard_service.get_history():
             if query and query not in text.lower():
                 continue
@@ -70,14 +72,16 @@ class ClipboardHistoryWidget(QWidget):
             item.setData(Qt.UserRole, text)
             item.setData(Qt.UserRole + 1, pinned)
             item.setToolTip(text)
+            if pinned:
+                pin_icon = pin_icon or glyph_icon("pin")
+                item.setIcon(pin_icon)
             self.list_widget.addItem(item)
 
     def _format_item(self, text: str, timestamp: datetime, pinned: bool) -> str:
         preview = text.replace("\n", " ")
         if len(preview) > 80:
             preview = f"{preview[:77]}..."
-        marker = "📌 " if pinned else ""
-        return f"{marker}{timestamp.strftime('%H:%M:%S')} — {preview}"
+        return f"{timestamp.strftime('%H:%M:%S')} — {preview}"
 
     def _show_context_menu(self, pos) -> None:
         item = self.list_widget.itemAt(pos)

@@ -42,8 +42,8 @@ from .icon_service import IconService
 from .file_copy_worker import FileCopyQueue
 from .layouts import FlowLayout
 from .local_shortcut_registry import LocalShortcutRegistry
-from .glyphs import GlyphButton, KeyboardButton
-from .styles import TOKENS, apply_design_system, apply_shadow
+from .glyphs import GlyphButton, KeyboardButton, glyph_icon
+from .styles import TOKENS, active_colors, apply_design_system, apply_shadow
 from .widgets import AppButton, AppListItem, ClipboardHistoryWidget, HotkeyHudWidget, NotesWidget, TitleBar, UniversalSearchWidget
 from ..repository import DEFAULT_GROUP
 from ..services.file_transfer_service import FileTransferService
@@ -96,25 +96,29 @@ def _set_windows_app_user_model_id() -> None:
 
 def _resolve_app_icon_path() -> Path | None:
     if getattr(sys, "frozen", False):
-        base_dir = Path(sys.executable).resolve().parent
+        # One-file builds unpack bundled data (main.spec datas) into _MEIPASS,
+        # not next to the installed executable.
+        bundle_dir = getattr(sys, "_MEIPASS", None)
+        base_dirs = [Path(sys.executable).resolve().parent]
+        if bundle_dir:
+            base_dirs.insert(0, Path(bundle_dir))
     else:
-        base_dir = Path(__file__).resolve().parents[2]
-    icon_path = base_dir / APP_ICON_FILENAME
-    if icon_path.exists():
-        return icon_path
+        base_dirs = [Path(__file__).resolve().parents[2]]
+    for base_dir in base_dirs:
+        icon_path = base_dir / APP_ICON_FILENAME
+        if icon_path.is_file():
+            return icon_path
     return None
 
 
 def _resolve_app_icon() -> QIcon:
-    if getattr(sys, "frozen", False):
-        frozen_icon = QIcon(sys.executable)
-        if not frozen_icon.isNull():
-            return frozen_icon
+    # Qt has no image reader for .exe resources, so always load the .ico itself.
     icon_path = _resolve_app_icon_path()
     if icon_path is not None:
         icon = QIcon(str(icon_path))
-        if not icon.isNull():
+        if icon.availableSizes():
             return icon
+    logger.warning("Иконка приложения %s не найдена", APP_ICON_FILENAME)
     return QIcon()
 
 
@@ -559,7 +563,7 @@ class AppLauncher(QMainWindow):
         QMessageBox.information(
             self,
             "О программе",
-            "version: 2.2\n from Sha by slipfaith",
+            "version: 2.3\n from Sha by slipfaith",
         )
 
     def closeEvent(self, event):
@@ -1344,7 +1348,7 @@ class AppLauncher(QMainWindow):
         if self.default_group and group == self.default_group:
             return
         menu = QMenu(self)
-        delete_action = menu.addAction("🗑️ Удалить")
+        delete_action = menu.addAction(glyph_icon("trash", active_colors().danger), "Удалить")
         if menu.exec(tab_bar.mapToGlobal(pos)) == delete_action:
             self.delete_group(group)
 

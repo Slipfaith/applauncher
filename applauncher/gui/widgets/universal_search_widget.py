@@ -12,13 +12,13 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QToolButton,
     QVBoxLayout,
 )
 
 from ...services.search_service import SearchResult, SearchService
 from ..tile_image.utils import load_icon_file
 from ..fallback_icons import fallback_icon
+from ..glyphs import GlyphButton
 
 
 class UniversalSearchWidget(QDialog):
@@ -40,9 +40,10 @@ class UniversalSearchWidget(QDialog):
         header.setProperty("role", "titleText")
         header_layout.addWidget(header)
 
-        close_button = QToolButton()
-        close_button.setText("✕")
-        close_button.setToolTip("Закрыть")
+        close_button = GlyphButton("close", tooltip="Закрыть")
+        close_button.setProperty("variant", "ghost")
+        close_button.setProperty("role", "iconButton")
+        close_button.setFixedSize(28, 28)
         close_button.clicked.connect(self.hide)
         header_layout.addWidget(close_button, alignment=Qt.AlignRight)
         layout.addLayout(header_layout)

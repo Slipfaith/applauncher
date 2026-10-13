@@ -6,10 +6,13 @@
 ; To package another build, pass /DMyAppSource=<absolute exe path> to ISCC.
 
 #define MyAppName "AppLauncher"
-#define MyAppVersion "2.2"
+#define MyAppVersion "2.3"
 #define MyAppPublisher "Slipfaith"
 #define MyAppURL "https://github.com/Slipfaith/applauncher"
 #define MyAppExeName "applauncher.exe"
+; Must match APP_USER_MODEL_ID in applauncher/gui/app.py so Windows ties the
+; running window to the Start menu shortcut (and shows its icon).
+#define MyAppUserModelID "applauncher.desktop.app"
 #ifndef MyAppSource
   #define MyAppSource "..\dist\applauncher.exe"
 #endif
@@ -40,6 +43,8 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=yes
 RestartApplications=no
+; Makes Explorer refresh its icon cache so new shortcuts show the app icon.
+ChangesAssociations=yes
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -57,9 +62,9 @@ Name: "autostart"; Description: "{cm:AutostartTask,{#MyAppName}}"; GroupDescript
 Source: "{#MyAppSource}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; AppUserModelID: "{#MyAppUserModelID}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; AppUserModelID: "{#MyAppUserModelID}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: autostart; Flags: uninsdeletevalue

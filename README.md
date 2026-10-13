@@ -1,6 +1,6 @@
 # AppLauncher
 
-**v2.2** | [English](#english) | [Русский](#русский)
+**v2.3** | [English](#english) | [Русский](#русский)
 
 ---
 
@@ -17,7 +17,9 @@
 - Разделы: `Приложения`, `Папки`, `Ссылки`, `Заметки`, `Буфер обмена`.
 - В «Настройки → Тема оформления» доступны автоматическая, светлая и тёмная темы. Выбор сразу меняет все окна и сохраняется между запусками; автоматический режим следует теме Windows. Прозрачность окна также сохраняется. Шрифты Onest и JetBrains Mono включены в пакет.
 - Кнопки «Меню» и «Настройки» находятся в заголовке окна. Кнопки заголовка, переключения вида и копирования доступны с клавиатуры.
-- Заметки показывают весь текст; кнопка ▾ сворачивает его до первых пяти строк. Двойной клик по карточке или F2 открывает отдельный редактор. Клик вне редактора закрывает его с автосохранением.
+- Заметки показывают весь текст; кнопка ▾ сворачивает заметку до заголовка. Двойной клик по свободному месту карточки или F2 открывает отдельный редактор. Клик вне редактора закрывает его с автосохранением.
+- Двойной клик по тексту выделяет слово, а по адресу почты — весь адрес. Тройной клик копирует строку целиком, включая её переносы по ширине карточки.
+- «Скрыть» в контекстном меню маскирует выделенный текст в карточке и редакторе. Клик по скрытому фрагменту временно раскрывает его для выделения и копирования; клик в сторону снова скрывает. «Раскрыть» снимает маскировку постоянно. Форматирование сохраняется. Длинные строки и адреса почты переносятся по ширине заметки.
 - В редакторе заметок доступны жирный, курсив и подчёркивание: кнопки B/I/U или `Ctrl+B` / `Ctrl+I` / `Ctrl+U`. Форматирование сохраняется между запусками.
 - Глобальный хоткей и поиск (`Ctrl+K` / `Meta+K`).
 - **Горячие клавиши элементов** — назначить глобальный хоткей на любое приложение/папку/ссылку через ПКМ; работает, даже когда окно лаунчера скрыто или неактивно.
@@ -91,7 +93,9 @@ Windows build: [applauncher.exe](gui/implementation_review/exe/applauncher.exe) 
 - Sections: `Apps`, `Folders`, `Links`, `Notes`, `Clipboard`.
 - Settings → Theme offers automatic, light and dark modes. Changes apply immediately to every window and persist between sessions; automatic mode follows Windows. Window opacity remains configurable. Onest and JetBrains Mono are bundled.
 - Menu and Settings are in the title bar. Header, view and copy buttons support keyboard navigation.
-- Notes show their full text; ▾ collapses a note to the first five lines. Double-click a card or press F2 to open its floating editor. Clicking outside closes it and saves changes automatically.
+- Notes show their full text; ▾ collapses a note to its header. Double-click an empty area of the card or press F2 to open its floating editor. Clicking outside closes it and saves changes automatically.
+- Double-click text to select a word, or an email address to select the entire address. Triple-click to copy the whole line, including any portions wrapped across the card.
+- The context-menu action «Скрыть» (Hide) masks selected text in both the card and editor. Click a hidden fragment to reveal it temporarily for selection and copying; clicking elsewhere hides it again. «Раскрыть» (Unhide) removes masking permanently. Formatting is preserved, and long lines and email addresses wrap to fit the note.
 - The note editor supports bold, italic and underline with B/I/U buttons or `Ctrl+B` / `Ctrl+I` / `Ctrl+U`. Formatting persists between sessions.
 - Global hotkey and search (`Ctrl+K` / `Meta+K`).
 - **Item hotkeys** — assign a global keyboard shortcut to any app/folder/link via the right-click menu; it works even while the launcher window is hidden or inactive.

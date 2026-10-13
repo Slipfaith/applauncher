@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 
-from ..styles import TOKENS
+from ..glyphs import glyph_icon
+from ..styles import TOKENS, active_colors
 from ..tile_image import IconFrameEditor, clamp, default_icon_frame
 from ...repository import DEFAULT_MACRO_GROUPS
 
@@ -52,7 +53,8 @@ class AddAppDialog(QDialog):
         type_label = QLabel("Тип элемента")
         layout.addWidget(type_label)
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["💻 Приложение", "🌐 Веб-сайт", "📁 Папка"])
+        for glyph, label in (("app", "Приложение"), ("globe", "Веб-сайт"), ("folder", "Папка")):
+            self.type_combo.addItem(glyph_icon(glyph), label)
         if app_data:
             if app_data.get("type") == "url":
                 self.type_combo.setCurrentIndex(1)
@@ -83,7 +85,8 @@ class AddAppDialog(QDialog):
                 self.path_input.setText(app_data.get("path", ""))
         path_layout.addWidget(self.path_input)
 
-        self.browse_btn = QPushButton("📁 Обзор")
+        self.browse_btn = QPushButton("Обзор")
+        self.browse_btn.setIcon(glyph_icon("folder-open", active_colors().on_accent))
         self.browse_btn.setProperty("variant", "accent")
         self.browse_btn.clicked.connect(self.browse_path)
         path_layout.addWidget(self.browse_btn)
@@ -97,7 +100,8 @@ class AddAppDialog(QDialog):
             self.icon_input.setText(app_data.get("icon_path", ""))
         icon_layout.addWidget(self.icon_input)
 
-        icon_btn = QPushButton("🖼️ Обзор")
+        icon_btn = QPushButton("Обзор")
+        icon_btn.setIcon(glyph_icon("image"))
         icon_btn.setProperty("variant", "secondary")
         icon_btn.clicked.connect(self.browse_icon)
         icon_layout.addWidget(icon_btn)
@@ -135,7 +139,8 @@ class AddAppDialog(QDialog):
         cancel_btn.setProperty("variant", "secondary")
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton("💾 Сохранить")
+        save_btn = QPushButton("Сохранить")
+        save_btn.setIcon(glyph_icon("save", active_colors().on_accent))
         save_btn.setProperty("variant", "accent")
         save_btn.clicked.connect(self.accept)
 
@@ -302,7 +307,8 @@ class AddMacroDialog(QDialog):
             self.path_input.setText(macro_data.get("path", ""))
         path_layout.addWidget(self.path_input)
 
-        self.browse_btn = QPushButton("📁 Обзор")
+        self.browse_btn = QPushButton("Обзор")
+        self.browse_btn.setIcon(glyph_icon("folder-open", active_colors().on_accent))
         self.browse_btn.setProperty("variant", "accent")
         self.browse_btn.clicked.connect(self.browse_path)
         path_layout.addWidget(self.browse_btn)
@@ -325,7 +331,8 @@ class AddMacroDialog(QDialog):
         cancel_btn.setProperty("variant", "secondary")
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton("💾 Сохранить")
+        save_btn = QPushButton("Сохранить")
+        save_btn.setIcon(glyph_icon("save", active_colors().on_accent))
         save_btn.setProperty("variant", "accent")
         save_btn.clicked.connect(self.accept)
 
