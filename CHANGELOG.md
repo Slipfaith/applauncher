@@ -3,6 +3,20 @@
 Новые записи добавляются сверху. Каждая запись описывает пользовательские изменения, проверки и связанную сборку.
 Newest entries appear first. Each entry describes user-facing changes, verification, and the associated build.
 
+## 2.4 — 2026-11-23
+
+### Русский
+
+- Лаунчер сохраняет выбранный вручную размер окна при переносе между мониторами и повторном запуске.
+- Горячая клавиша восстанавливает развёрнутое окно после сворачивания.
+- Сборка Windows [applauncher.exe](gui/implementation_review/exe/applauncher.exe) · [SHA-256](gui/implementation_review/exe/SHA256SUMS).
+
+### English
+
+- AppLauncher keeps the manually chosen window size when moved between monitors and after restarting.
+- The global shortcut restores a minimized window to its previous maximized state.
+- Windows build [applauncher.exe](gui/implementation_review/exe/applauncher.exe) · [SHA-256](gui/implementation_review/exe/SHA256SUMS).
+
 ## 2.3 — 2026-10-13
 
 ### Русский

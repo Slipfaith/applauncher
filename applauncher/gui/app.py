@@ -76,7 +76,9 @@ HTBOTTOM = 15
 HTBOTTOMLEFT = 16
 HTBOTTOMRIGHT = 17
 WM_NCCALCSIZE = 0x0083
+WM_SIZING = 0x0214
 WM_POWERBROADCAST = 0x0218
+WM_EXITSIZEMOVE = 0x0232
 PBT_APMRESUMESUSPEND = 0x0007
 PBT_APMRESUMEAUTOMATIC = 0x0012
 WS_THICKFRAME = 0x00040000
@@ -177,6 +179,10 @@ class AppLauncher(QMainWindow):
         self._notes_dirty = False
         self._did_final_flush = False
         self._state_loaded = False
+        self._native_resize_active = False
+        self._window_size_restore_timer = QTimer(self)
+        self._window_size_restore_timer.setSingleShot(True)
+        self._window_size_restore_timer.timeout.connect(self._restore_window_size)
         self.launch_service = LaunchService()
         self.file_transfer_service = FileTransferService()
         self._quitting = False
@@ -563,7 +569,7 @@ class AppLauncher(QMainWindow):
         QMessageBox.information(
             self,
             "О программе",
-            "version: 2.3\n from Sha by slipfaith",
+            "version: 2.4\n from Sha by slipfaith",
         )
 
     def closeEvent(self, event):
@@ -1175,16 +1181,13 @@ class AppLauncher(QMainWindow):
             self.schedule_save()
 
     def _restore_window_size(self) -> None:
+        if self._native_resize_active or self.isMinimized() or self.isMaximized() or self.isFullScreen():
+            return
         width, height = self.service.window_size or (1000, 620)
-        screen = self.screen()
-        if screen is not None:
-            available = screen.availableGeometry()
-            width = min(width, available.width())
-            height = min(height, available.height())
-        self.resize(max(self.minimumWidth(), width), max(self.minimumHeight(), height))
+        self.resize(width, height)
 
     def _save_window_size(self) -> None:
-        if not self._state_loaded or self.isMaximized() or self.isFullScreen():
+        if not self._state_loaded or self.isMinimized() or self.isMaximized() or self.isFullScreen():
             return
         current_size = (self.width(), self.height())
         if self.service.window_size == current_size:
@@ -1530,6 +1533,11 @@ class AppLauncher(QMainWindow):
                 return super().nativeEvent(eventType, message)
             if msg.message == WM_NCCALCSIZE and msg.wParam:
                 return True, 0
+            if msg.message == WM_SIZING:
+                self._native_resize_active = True
+            elif msg.message == WM_EXITSIZEMOVE and self._native_resize_active:
+                self._native_resize_active = False
+                self._save_window_size()
             if msg.message == WM_POWERBROADCAST and msg.wParam in {
                 PBT_APMRESUMESUSPEND,
                 PBT_APMRESUMEAUTOMATIC,
@@ -1545,8 +1553,11 @@ class AppLauncher(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._save_window_size()
-        # FlowLayout automatically handles resizing
+        if os.name != "nt":
+            self._save_window_size()
+        elif self._state_loaded and not self._native_resize_active:
+            # Let Windows and Qt finish the geometry change before restoring the user's size.
+            self._window_size_restore_timer.start(0)
 
     def setup_shortcuts(self):
         search_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
@@ -1626,9 +1637,8 @@ class AppLauncher(QMainWindow):
 
     def _show_and_activate(self) -> None:
         if self.isMinimized():
-            self.showNormal()
-        else:
-            self.show()
+            self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self.show()
         self.raise_()
         self.activateWindow()
         self._scroll_to_top()

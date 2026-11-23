@@ -1,11 +1,18 @@
 """Interaction regressions for the redesigned runtime widgets."""
-import pytest
+import ctypes
+import os
+from ctypes import wintypes
 from pathlib import Path
-from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRectF, Qt, QUrl
+from types import SimpleNamespace
+
+import pytest
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QPointF, QRect, QRectF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent, QEnterEvent, QFont, QFontMetrics
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
+from shiboken6 import VoidPtr
 
+from applauncher.gui.app import WM_EXITSIZEMOVE, WM_SIZING
 from applauncher.gui.styles import apply_design_system
 from applauncher.gui.widgets import AppButton, AppListItem, HotkeySlotWidget, TitleBar
 from ui_fixture import isolated_window, settle
@@ -69,8 +76,10 @@ def test_header_tab_order_is_logical(window):
 
 
 def test_hover_shadow_fits_grid_edges_at_minimum_size(window):
+    window.service.window_size = (680, 440)
     window.resize(680, 440)
     settle()
+    assert window.size().toTuple() == (680, 440)
     tiles = [window.grid_layout.itemAt(i).widget() for i in range(window.grid_layout.count())]
     viewport = window.scroll_area.viewport()
     for tile in (tiles[0], tiles[-1]):
@@ -95,6 +104,59 @@ def test_window_buttons_track_maximize_and_no_tray(window):
     settle()
     assert not window.isMaximized()
     assert bar.max_button.accessibleName() == "Развернуть"
+
+
+def test_hotkey_restores_a_minimized_maximized_window(window):
+    window.showMaximized()
+    settle()
+    window.showMinimized()
+    settle()
+    assert window.isMinimized()
+
+    window.hotkey_service.hotkey_activated.emit()
+    settle()
+
+    assert not window.isMinimized()
+    assert window.isMaximized()
+
+
+def test_saved_window_size_is_restored_on_a_smaller_screen(window, monkeypatch):
+    screen = SimpleNamespace(availableGeometry=lambda: QRect(0, 0, 800, 500))
+    monkeypatch.setattr(window, "screen", lambda: screen)
+    saved_size = (1200, 760)
+    window.service.window_size = saved_size
+
+    window._restore_window_size()
+    settle()
+
+    assert window.size().toTuple() == saved_size
+    assert window.service.window_size == saved_size
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native resize messages")
+def test_window_saves_only_manual_resize_on_windows(window):
+    saved_size = (920, 560)
+    window.service.window_size = saved_size
+    window._restore_window_size()
+    for automatic_size in [(720, 480), (1120, 700)]:
+        window.resize(*automatic_size)
+        settle()
+        assert window.size().toTuple() == saved_size
+        assert window.service.window_size == saved_size
+
+    sizing_rect = wintypes.RECT()
+    sizing = wintypes.MSG(message=WM_SIZING, lParam=ctypes.addressof(sizing_rect))
+    finished = wintypes.MSG(message=WM_EXITSIZEMOVE)
+    event_type = QByteArray(b"windows_generic_MSG")
+    window.nativeEvent(event_type, VoidPtr(ctypes.addressof(sizing)))
+    window.resize(1100, 680)
+    settle()
+    assert window.size().toTuple() == (1100, 680)
+    assert window.service.window_size == saved_size
+    window.nativeEvent(event_type, VoidPtr(ctypes.addressof(finished)))
+    settle()
+    assert window.size().toTuple() == (1100, 680)
+    assert window.service.window_size == (1100, 680)
 
 
 @pytest.mark.parametrize("name", [

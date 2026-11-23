@@ -1,6 +1,6 @@
 # AppLauncher
 
-**v2.3** | [English](#english) | [Русский](#русский)
+**v2.4** | [English](#english) | [Русский](#русский)
 
 ---
 

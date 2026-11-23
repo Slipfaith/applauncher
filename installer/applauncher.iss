@@ -6,7 +6,7 @@
 ; To package another build, pass /DMyAppSource=<absolute exe path> to ISCC.
 
 #define MyAppName "AppLauncher"
-#define MyAppVersion "2.3"
+#define MyAppVersion "2.4"
 #define MyAppPublisher "Slipfaith"
 #define MyAppURL "https://github.com/Slipfaith/applauncher"
 #define MyAppExeName "applauncher.exe"
